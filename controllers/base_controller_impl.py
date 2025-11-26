@@ -1,11 +1,12 @@
 """Base controller implementation module with FastAPI dependency injection."""
-from typing import Type, List, Callable
+from typing import Any, Callable, Dict, List, Set, Type, Union
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from config.database import get_db
 from controllers.base_controller import BaseController
 from schemas.base_schema import BaseSchema
-from config.database import get_db
 
 
 class BaseControllerImpl(BaseController):
@@ -19,7 +20,8 @@ class BaseControllerImpl(BaseController):
         self,
         schema: Type[BaseSchema],
         service_factory: Callable[[Session], 'BaseService'],
-        tags: List[str] = None
+        tags: List[str] = None,
+        exclude_on_get: Union[Set[str], Dict[str, Any]] = None,
     ):
         """
         Initialize the controller with dependency injection support.
@@ -28,10 +30,12 @@ class BaseControllerImpl(BaseController):
             schema: The Pydantic schema class for validation
             service_factory: A callable that creates a service instance given a DB session
             tags: Optional list of tags for API documentation
+            exclude_on_get: A set or dict of field names to exclude from the response on get requests
         """
         self.schema = schema
         self.service_factory = service_factory
         self.router = APIRouter(tags=tags or [])
+        self.exclude_on_get = exclude_on_get
 
         # Register all CRUD endpoints with proper dependency injection
         self._register_routes()
@@ -39,24 +43,23 @@ class BaseControllerImpl(BaseController):
     def _register_routes(self):
         """Register all CRUD routes with proper dependency injection."""
 
-        @self.router.get("/", response_model=List[self.schema], status_code=status.HTTP_200_OK)
-        async def get_all(
-            skip: int = 0,
-            limit: int = 100,
-            db: Session = Depends(get_db)
-        ):
+        @self.router.get(
+            "/",
+            response_model=List[self.schema],
+            status_code=status.HTTP_200_OK,
+            response_model_exclude=self.exclude_on_get,
+        )
+        async def get_all(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
             """Get all records with pagination."""
             service = self.service_factory(db)
             return service.get_all(skip=skip, limit=limit)
 
-        @self.router.get("/{id_key}", response_model=self.schema, status_code=status.HTTP_200_OK)
-        async def get_one(
-            id_key: int,
-            db: Session = Depends(get_db)
-        ):
-            """Get a single record by ID."""
-            service = self.service_factory(db)
-            return service.get_one(id_key)
+        @self.router.get(
+            "/{id_key}",
+            response_model=self.schema,
+            status_code=status.HTTP_200_OK,
+            response_model_exclude=self.exclude_on_get,
+        )
 
         @self.router.post("/", response_model=self.schema, status_code=status.HTTP_201_CREATED)
         async def create(
