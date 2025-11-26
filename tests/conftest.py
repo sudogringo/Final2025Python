@@ -116,9 +116,8 @@ def sample_address_data():
     """Sample address data."""
     return {
         "street": "123 Main St",
+        "number": "Apt 1",
         "city": "New York",
-        "postal_code": "10001",
-        "country": "USA",
         "client_id": 1
     }
 
@@ -212,9 +211,8 @@ def seeded_db(db_session: Session):
     # Create address
     address = AddressModel(
         street="123 Main St",
+        number="Apt 1",
         city="New York",
-        postal_code="10001",
-        country="USA",
         client_id=client.id_key
     )
     db_session.add(address)
