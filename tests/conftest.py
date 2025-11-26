@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from datetime import datetime, date
 from typing import Generator
 
+# This import is crucial for populating Base.metadata
+from config import database  # noqa
+
 # Set test environment before importing app modules
 os.environ['POSTGRES_HOST'] = 'localhost'
 os.environ['POSTGRES_PORT'] = '5432'

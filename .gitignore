@@ -44,3 +44,6 @@ redis_data/
 build/
 dist/
 *.egg-info/
+
+# Virtual environment
+venv/
