@@ -11,5 +11,6 @@ class CategoryController(BaseControllerImpl):
         super().__init__(
             schema=CategorySchema,
             service_factory=lambda db: CategoryService(db),
-            tags=["Categories"]
+            tags=["Categories"],
+            exclude_on_get={"products"},
         )
