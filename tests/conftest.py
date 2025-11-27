@@ -19,6 +19,7 @@ os.environ['POSTGRES_PASSWORD'] = 'postgres'
 os.environ['REDIS_HOST'] = 'localhost'
 os.environ['REDIS_PORT'] = '6379'
 
+from config.database import get_db
 from models.base_model import base as Base
 from main import create_fastapi_app
 
@@ -73,8 +74,7 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         finally:
             pass
 
-    # Note: You may need to implement dependency override in your app
-    # app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
         yield test_client

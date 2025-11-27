@@ -135,8 +135,7 @@ class TestProductModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -162,8 +161,7 @@ class TestClientModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.commit()
@@ -172,7 +170,6 @@ class TestClientModel:
         assert client.name == "John Doe"
         assert client.email == "john@example.com"
         assert client.telephone == "+1234567890"
-        assert client.age == 30
 
     def test_client_required_fields(self, db_session):
         """Test that required fields are enforced."""
@@ -186,8 +183,7 @@ class TestClientModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -210,8 +206,7 @@ class TestClientModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -248,8 +243,7 @@ class TestAddressModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -276,8 +270,7 @@ class TestAddressModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -354,8 +347,7 @@ class TestOrderModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -390,8 +382,7 @@ class TestOrderModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -424,8 +415,7 @@ class TestOrderModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -458,8 +448,7 @@ class TestOrderModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -508,8 +497,7 @@ class TestOrderDetailModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
@@ -578,8 +566,7 @@ class TestReviewModel:
         client = Client(
             name="John Doe",
             email="john@example.com",
-            telephone="+1234567890",
-            age=30
+            telephone="+1234567890"
         )
         db_session.add(client)
         db_session.flush()
