@@ -24,28 +24,12 @@ from models.bill import BillModel
 from services.product_service import ProductService
 from repositories.base_repository_impl import InstanceNotFoundError
 from middleware.rate_limiter import RateLimiterMiddleware
+from models.enums import PaymentType, DeliveryMethod, Status
 
 
 # ============================================================================
 # FIXTURES
 # ============================================================================
-
-@pytest.fixture
-def db_session():
-    """Create fresh SQLite in-memory database per test"""
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(bind=engine)
-    session = SessionLocal()
-
-    yield session
-
-    session.close()
-    Base.metadata.drop_all(bind=engine)
-
 
 @pytest.fixture
 def mock_redis():
@@ -56,7 +40,6 @@ def mock_redis():
     redis_mock.get.return_value = None
     redis_mock.incr.return_value = 1
     redis_mock.expire.return_value = True
-    redis_mock.delete.return_value = 1
 
     # Pipeline mock
     pipeline_mock = Mock()
@@ -242,7 +225,7 @@ class TestP10ProductDeletionValidation:
         bill = BillModel(
             bill_number="BILL-001",
             total=999.99,
-            payment_type="CREDIT_CARD"
+            payment_type=PaymentType.CARD
         )
         db_session.add(bill)
         db_session.commit()
@@ -250,8 +233,8 @@ class TestP10ProductDeletionValidation:
         order = OrderModel(
             client_id=client.id_key,
             bill_id=bill.id_key,
-            delivery_method="DRIVE_THRU",
-            status="PENDING"
+            delivery_method=DeliveryMethod.DRIVE_THRU,
+            status=Status.PENDING
         )
         db_session.add(order)
         db_session.commit()
@@ -317,7 +300,7 @@ class TestP10ProductDeletionValidation:
         bill = BillModel(
             bill_number="BILL-002",
             total=29.99,
-            payment_type="CASH"
+            payment_type=PaymentType.CASH
         )
         db_session.add(bill)
         db_session.commit()
@@ -325,8 +308,8 @@ class TestP10ProductDeletionValidation:
         order = OrderModel(
             client_id=client.id_key,
             bill_id=bill.id_key,
-            delivery_method="PICK_UP",
-            status="COMPLETED"
+            delivery_method=DeliveryMethod.ON_HAND,
+            status=Status.DELIVERED
         )
         db_session.add(order)
         db_session.commit()

@@ -1,3 +1,6 @@
+# This import is crucial for populating Base.metadata before anything else.
+from config import database  # noqa
+
 """Pytest configuration and fixtures for testing."""
 import os
 import pytest
@@ -6,9 +9,6 @@ from sqlalchemy.orm import sessionmaker, Session
 from fastapi.testclient import TestClient
 from datetime import datetime, date
 from typing import Generator
-
-# This import is crucial for populating Base.metadata
-from config import database  # noqa
 
 # Set test environment before importing app modules
 os.environ['POSTGRES_HOST'] = 'localhost'
