@@ -28,7 +28,7 @@ from main import create_fastapi_app
 TEST_DATABASE_URL = "sqlite:///:memory:"  # In-memory SQLite for fast testing
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def engine():
     """Create test database engine."""
     test_engine = create_engine(
