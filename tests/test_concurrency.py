@@ -7,7 +7,10 @@ and ensure stock consistency under high concurrency.
 import pytest
 import concurrent.futures
 import threading
+from datetime import date
 from sqlalchemy.orm import Session
+
+from models.enums import DeliveryMethod, Status
 
 from models.product import ProductModel
 from models.order import OrderModel
@@ -67,9 +70,9 @@ class TestConcurrentStockOperations:
 
         # Create order for order details
         order = OrderModel(
-            date="2025-11-17",
-            delivery_method="Drive-thru",
-            status="PENDING",
+            date=date(2025, 11, 17),
+            delivery_method=DeliveryMethod.DRIVE_THRU,
+            status=Status.PENDING,
             client_id=client.id_key,
             bill_id=bill.id_key
         )
@@ -210,9 +213,9 @@ class TestConcurrentStockOperations:
         db_session.commit()
 
         order = OrderModel(
-            date="2025-11-17",
-            delivery_method="Drive-thru",
-            status="PENDING",
+            date=date(2025, 11, 17),
+            delivery_method=DeliveryMethod.DRIVE_THRU,
+            status=Status.PENDING,
             client_id=client.id_key,
             bill_id=bill.id_key
         )
@@ -356,9 +359,9 @@ class TestConcurrentStockOperations:
         db_session.commit()
 
         order = OrderModel(
-            date="2025-11-17",
-            delivery_method="Drive-thru",
-            status="PENDING",
+            date=date(2025, 11, 17),
+            delivery_method=DeliveryMethod.DRIVE_THRU,
+            status=Status.PENDING,
             client_id=client.id_key,
             bill_id=bill.id_key
         )

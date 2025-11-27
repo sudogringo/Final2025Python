@@ -187,7 +187,7 @@ class TestP10ProductDeletionValidation:
     def test_delete_product_without_sales_history_success(self, db_session):
         """Test deletion of product without any sales history"""
         # Setup: Create category and product
-        category = CategoryModel(name="Electronics", description="Electronics category")
+        category = CategoryModel(name="Electronics")
         db_session.add(category)
         db_session.commit()
 
@@ -217,7 +217,7 @@ class TestP10ProductDeletionValidation:
         Verifies that products with associated order details cannot be deleted
         """
         # Setup: Create complete order with order detail
-        category = CategoryModel(name="Electronics", description="Electronics")
+        category = CategoryModel(name="Electronics")
         db_session.add(category)
         db_session.commit()
 
@@ -291,7 +291,7 @@ class TestP10ProductDeletionValidation:
         Validates the fix works correctly when sales history is cleaned up
         """
         # Setup: Create product with sales history
-        category = CategoryModel(name="Electronics", description="Electronics")
+        category = CategoryModel(name="Electronics")
         db_session.add(category)
         db_session.commit()
 
