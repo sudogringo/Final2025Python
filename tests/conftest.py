@@ -23,56 +23,61 @@ from config.database import get_db
 from models.base_model import base as Base
 from main import create_fastapi_app
 
+from models.category import CategoryModel
+from models.product import ProductModel
+from models.client import ClientModel
+from models.address import AddressModel
+from models.bill import BillModel
+from models.order import OrderModel
+from models.review import ReviewModel
+from models.enums import Status, DeliveryMethod, PaymentType
+
 
 # Test database URL
-TEST_DATABASE_URL = "sqlite:///:memory:"  # In-memory SQLite for fast testing
+TEST_DATABASE_URL = "sqlite:///./test.db"  # File-based DB for inspection
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def engine():
-    """Create test database engine."""
+    """Create a new in-memory SQLite engine for each test function."""
     test_engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},  # SQLite specific
         echo=False
     )
-    Base.metadata.create_all(bind=test_engine)
     yield test_engine
-    Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
 
 
 @pytest.fixture(scope="function")
-def db_session(engine) -> Generator[Session, None, None]:
-    """Create a new database session for each test."""
-    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = TestSessionLocal()
-
+def db_session_factory(engine) -> Generator[sessionmaker, None, None]:
+    Base.metadata.create_all(bind=engine)
+    connection = engine.connect()
+    transaction = connection.begin()
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=connection)
     try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+        yield SessionLocal
     finally:
-        session.close()
-        # Clean all tables after each test
-        for table in reversed(Base.metadata.sorted_tables):
-            session.execute(table.delete())
-        session.commit()
+        transaction.rollback()
+        connection.close()
+        Base.metadata.drop_all(bind=engine)  # Drop tables after test
 
 
 @pytest.fixture(scope="function")
-def client(db_session: Session) -> Generator[TestClient, None, None]:
+def api_client(db_session_factory: sessionmaker) -> Generator[TestClient, None, None]:
     """Create a test client for API testing."""
     app = create_fastapi_app()
 
-    # Override database session dependency
     def override_get_db():
+        session = db_session_factory()
         try:
-            yield db_session
+            yield session
+            session.commit() # Commit changes made by the request
+        except Exception:
+            session.rollback() # Rollback on exception
+            raise
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
 
@@ -165,114 +170,104 @@ def sample_review_data():
     return {
         "rating": 4.5,  # Changed to float in range 1.0-5.0
         "comment": "Excellent product, highly recommended!",  # Min 10 chars
-        "product_id": 1  # Required field (removed client_id - not in schema)
+        "product_id": 1
     }
 
 
 # Database seeding fixtures
-@pytest.fixture
-def seeded_db(db_session: Session):
-    """Seed database with test data."""
-    from models.category import CategoryModel
-    from models.product import ProductModel
-    from models.client import ClientModel
-    from models.address import AddressModel
-    from models.bill import BillModel
-    from models.order import OrderModel
-    from models.order_detail import OrderDetailModel
-    from models.review import ReviewModel
-    from models.enums import DeliveryMethod, Status, PaymentType
+@pytest.fixture(scope="function")
+def seeded_db(db_session_factory: sessionmaker) -> dict:
+    session = db_session_factory()
+    try:
+        # Create a category
+        category = CategoryModel(name="Electronics")
+        session.add(category)
+        session.flush()
+        session.refresh(category)
 
-    # Create category
-    category = CategoryModel(name="Electronics")
-    db_session.add(category)
-    db_session.flush()
+        # Create a product
+        product = ProductModel(
+            name="Test Product",
+            price=10.0,
+            stock=100,
+            category_id=category.id_key,
+        )
+        session.add(product)
+        session.flush()
+        session.refresh(product)
 
-    # Create product
-    product = ProductModel(
-        name="Laptop",
-        price=999.99,
-        stock=10,
-        category_id=category.id_key
-    )
-    db_session.add(product)
-    db_session.flush()
+        # Create a client
+        client = ClientModel(
+            name="John",
+            lastname="Doe",
+            email="john.doe@example.com",
+            telephone="1234567890",
+        )
+        session.add(client)
+        session.flush()
+        session.refresh(client)
 
-    # Create client
-    client = ClientModel(
-        name="John",
-        lastname="Doe",
-        email="john.doe@example.com",
-        telephone="+1234567890"
-    )
-    db_session.add(client)
-    db_session.flush()
+        # Create an address
+        address = AddressModel(
+            street="123 Test St",
+            city="Testville",
+            client_id=client.id_key,
+        )
+        session.add(address)
+        session.flush()
+        session.refresh(address)
 
-    # Create address
-    address = AddressModel(
-        street="123 Main St",
-        number="Apt 1",
-        city="New York",
-        client_id=client.id_key
-    )
-    db_session.add(address)
-    db_session.flush()
+        # Create a bill
+        bill = BillModel(
+            bill_number="BILL-TEST-001",
+            discount=0.0,
+            date=date.today(),
+            total=0.0,
+            payment_type=PaymentType.CARD,
+            client_id=client.id_key
+        )
+        session.add(bill)
+        session.flush()
+        session.refresh(bill)
 
-    # Create bill
-    bill = BillModel(
-        bill_number="BILL-001",
-        discount=10.0,
-        date=date.today(),
-        total=989.99,
-        payment_type=PaymentType.CASH,
-        client_id=client.id_key  # ✅ Added - required field
-    )
-    db_session.add(bill)
-    db_session.flush()
+        # Create an order
+        order = OrderModel(
+            client_id=client.id_key,
+            bill_id=bill.id_key,
+            status=Status.PENDING,
+            delivery_method=DeliveryMethod.DRIVE_THRU,
+            date=date.today()
+        )
+        session.add(order)
+        session.flush()
+        session.refresh(order)
 
-    # Create order
-    order = OrderModel(
-        date=datetime.utcnow(),
-        total=989.99,
-        delivery_method=DeliveryMethod.DRIVE_THRU,
-        status=Status.PENDING,
-        client_id=client.id_key,
-        bill_id=bill.id_key
-    )
-    db_session.add(order)
-    db_session.flush()
+        # Create a review
+        review = ReviewModel(
+            product_id=product.id_key,
+            rating=4.5,
+            comment="Great product!"
+        )
+        session.add(review)
+        session.flush()
+        session.refresh(review)
 
-    # Create order detail
-    order_detail = OrderDetailModel(
-        quantity=1,
-        price=999.99,
-        order_id=order.id_key,
-        product_id=product.id_key
-    )
-    db_session.add(order_detail)
-    db_session.flush()
+        # No session.commit() here; the overarching transaction from db_session_factory
+        # will handle the rollback at the end of the test.
+        # The api_client's override_get_db will handle commits for individual requests.
 
-    # Create review
-    review = ReviewModel(
-        rating=5.0,  # Float in range 1.0-5.0
-        comment="Excellent product, highly recommended!",  # Min 10 chars
-        product_id=product.id_key
-        # Note: client_id removed - ReviewModel doesn't have this field
-    )
-    db_session.add(review)
-
-    db_session.commit()
-
-    return {
-        "category": category,
-        "product": product,
-        "client": client,
-        "address": address,
-        "bill": bill,
-        "order": order,
-        "order_detail": order_detail,
-        "review": review
-    }
+        return {
+            "category": category,
+            "product": product,
+            "client": client,
+            "address": address,
+            "bill": bill,
+            "order": order,
+            "review": review,
+            "db_session": session # Provide the session for direct use in tests if needed
+        }
+    finally:
+        session.close()
 
 
 # Mock Redis client for testing

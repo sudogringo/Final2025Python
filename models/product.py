@@ -30,10 +30,10 @@ class ProductModel(BaseModel):
         CheckConstraint('stock >= 0', name='check_product_stock_non_negative'),
     )
 
-    name = Column(String, index=True)
-    price = Column(Float, index=True)
+    name = Column(String, index=True, nullable=False)
+    price = Column(Float, index=True, nullable=False)
     stock = Column(Integer, default=0, nullable=False, index=True)  # ✅ Added index
-    category_id = Column(Integer, ForeignKey('categories.id_key'), index=True)
+    category_id = Column(Integer, ForeignKey('categories.id_key'), index=True, nullable=False)
 
     category = relationship(
         'CategoryModel',

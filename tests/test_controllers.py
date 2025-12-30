@@ -9,16 +9,17 @@ from models.enums import DeliveryMethod, Status, PaymentType
 
 
 @pytest.fixture
-def test_app(db_session):
+def test_app(db_session_factory):
     """Create test FastAPI app with database override."""
     app = create_fastapi_app()
 
     # Override get_db dependency
     def override_get_db():
+        session = db_session_factory()
         try:
-            yield db_session
+            yield session
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
 
@@ -168,16 +169,16 @@ class TestClientEndpoints:
     def test_create_client(self, api_client):
         """Test POST /clients/."""
         payload = {
-            "name": "Jane Smith",
+            "name": "Jane",
+            "lastname": "Smith",
             "email": "jane@example.com",
-            "telephone": "+9876543210",
-            "age": 25
+            "telephone": "+9876543210"
         }
         response = api_client.post("/clients/", json=payload)
 
         assert response.status_code == 201
         data = response.json()
-        assert data["name"] == "Jane Smith"
+        assert data["name"] == "Jane"
         assert data["email"] == "jane@example.com"
 
     def test_update_client(self, api_client, seeded_db):
@@ -187,14 +188,13 @@ class TestClientEndpoints:
             "id_key": client.id_key,
             "name": "John Updated",
             "email": client.email,
-            "telephone": client.phone,
-            "age": 35
+            "telephone": client.telephone
         }
         response = api_client.put(f"/clients/{client.id_key}", json=payload)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["age"] == 35
+        assert data["name"] == "John Updated"
 
 
 class TestOrderEndpoints:
@@ -359,20 +359,22 @@ class TestOrderDetailEndpoints:
 class TestBillEndpoints:
     """Tests for Bill API endpoints."""
 
-    def test_create_bill(self, api_client):
+    def test_create_bill(self, api_client, seeded_db):
         """Test POST /bills/."""
+        client = seeded_db["client"]
         payload = {
-            "bill_number": "BILL-TEST-001",
+            "bill_number": f"BILL-TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}",
             "discount": 15.0,
             "date": date.today().isoformat(),
             "total": 850.0,
-            "payment_type": PaymentType.CARD.value
+            "payment_type": PaymentType.CARD.value,
+            "client_id": seeded_db["client"].id_key
         }
         response = api_client.post("/bills/", json=payload)
 
         assert response.status_code == 201
         data = response.json()
-        assert data["bill_number"] == "BILL-TEST-001"
+        assert data["bill_number"].startswith("BILL-TEST-")
         assert data["total"] == 850.0
 
     def test_get_bill_by_id(self, api_client, seeded_db):
@@ -411,7 +413,7 @@ class TestAddressEndpoints:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["street"] == "123 Main St"
+        assert data["street"] == "123 Test St"
 
 
 class TestReviewEndpoints:
@@ -440,8 +442,7 @@ class TestReviewEndpoints:
             "id_key": review.id_key,
             "rating": 3,
             "comment": "Updated comment",
-            "product_id": review.product_id,
-            "client_id": review.client_id
+            "product_id": review.product_id
         }
         response = api_client.put(f"/reviews/{review.id_key}", json=payload)
 

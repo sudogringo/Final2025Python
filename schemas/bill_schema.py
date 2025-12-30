@@ -21,6 +21,3 @@ class BillSchema(BaseSchema):
     payment_type: PaymentType = Field(..., description="Payment type (required)")
     client_id: int = Field(..., description="Client ID reference (required)")  # ✅ Added
 
-    # Relationships
-    order: Optional['OrderSchema'] = None
-    client: Optional['ClientSchema'] = None  # ✅ Added

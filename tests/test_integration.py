@@ -9,15 +9,20 @@ from models.enums import DeliveryMethod, Status, PaymentType
 
 
 @pytest.fixture
-def test_app(db_session):
+def test_app(db_session_factory):
     """Create test FastAPI app with database override."""
     app = create_fastapi_app()
 
     def override_get_db():
+        session = db_session_factory()
         try:
-            yield db_session
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
-            pass
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
     return app
@@ -54,10 +59,10 @@ class TestCompleteOrderWorkflow:
 
         # Step 3: Create Client
         client_payload = {
-            "name": "Alice Johnson",
+            "name": "Alice",
+            "lastname": "Johnson",
             "email": "alice@example.com",
-            "telephone": "+1234567890",
-            "age": 28
+            "telephone": "+1234567890"
         }
         client_response = api_client.post("/clients/", json=client_payload)
         assert client_response.status_code == 201
@@ -67,8 +72,6 @@ class TestCompleteOrderWorkflow:
         address_payload = {
             "street": "123 Tech St",
             "city": "San Francisco",
-            "postal_code": "94102",
-            "country": "USA",
             "client_id": client_id
         }
         address_response = api_client.post("/addresses/", json=address_payload)
@@ -80,7 +83,8 @@ class TestCompleteOrderWorkflow:
             "discount": 100.0,
             "date": date.today().isoformat(),
             "total": 1399.99,
-            "payment_type": PaymentType.CARD.value
+            "payment_type": PaymentType.CARD.value,
+            "client_id": client_id
         }
         bill_response = api_client.post("/bills/", json=bill_payload)
         assert bill_response.status_code == 201
@@ -106,7 +110,7 @@ class TestCompleteOrderWorkflow:
             "order_id": order_id,
             "product_id": product_id
         }
-        order_detail_response = api_client.post("/order-details/", json=order_detail_payload)
+        order_detail_response = api_client.post("/order_details/", json=order_detail_payload)
         assert order_detail_response.status_code == 201
 
         # Step 8: Verify stock was deducted
@@ -117,8 +121,7 @@ class TestCompleteOrderWorkflow:
         review_payload = {
             "rating": 5,
             "comment": "Excellent gaming laptop!",
-            "product_id": product_id,
-            "client_id": client_id
+            "product_id": product_id
         }
         review_response = api_client.post("/reviews/", json=review_payload)
         assert review_response.status_code == 201
@@ -161,10 +164,10 @@ class TestMultipleProductsOrder:
 
         # Create Client
         client = api_client.post("/clients/", json={
-            "name": "Bob Smith",
+            "name": "Bob",
+            "lastname": "Smith",
             "email": "bob@example.com",
-            "telephone": "+1111111111",
-            "age": 35
+            "telephone": "+1111111111"
         }).json()
 
         # Create Bill
@@ -172,7 +175,8 @@ class TestMultipleProductsOrder:
             "bill_number": "BILL-MULTI-001",
             "date": date.today().isoformat(),
             "total": 600.0,
-            "payment_type": PaymentType.CASH.value
+            "payment_type": PaymentType.CASH.value,
+            "client_id": client["id_key"]
         }).json()
 
         # Create Order
@@ -187,7 +191,7 @@ class TestMultipleProductsOrder:
 
         # Add all products to order
         for product in products:
-            order_detail_response = api_client.post("/order-details/", json={
+            order_detail_response = api_client.post("/order_details/", json={
                 "quantity": 2,
                 "price": product["price"],
                 "order_id": order["id_key"],
@@ -219,16 +223,17 @@ class TestStockManagementScenarios:
         # Create Client and Bill
         client = api_client.post("/clients/", json={
             "name": "Customer",
+            "lastname": "Test",
             "email": "customer@example.com",
-            "telephone": "+2222222222",
-            "age": 30
+            "telephone": "+2222222222"
         }).json()
 
         bill1 = api_client.post("/bills/", json={
             "bill_number": "BILL-STOCK-001",
             "date": date.today().isoformat(),
             "total": 150.0,
-            "payment_type": PaymentType.CASH.value
+            "payment_type": PaymentType.CASH.value,
+            "client_id": client["id_key"]
         }).json()
 
         # Create Order
@@ -242,7 +247,7 @@ class TestStockManagementScenarios:
         }).json()
 
         # Order 3 items (should succeed)
-        response1 = api_client.post("/order-details/", json={
+        response1 = api_client.post("/order_details/", json={
             "quantity": 3,
             "price": product["price"],
             "order_id": order1["id_key"],
@@ -259,7 +264,8 @@ class TestStockManagementScenarios:
             "bill_number": "BILL-STOCK-002",
             "date": date.today().isoformat(),
             "total": 150.0,
-            "payment_type": PaymentType.CASH.value
+            "payment_type": PaymentType.CASH.value,
+            "client_id": client["id_key"]
         }).json()
 
         order2 = api_client.post("/orders/", json={
@@ -271,7 +277,7 @@ class TestStockManagementScenarios:
             "bill_id": bill2["id_key"]
         }).json()
 
-        response2 = api_client.post("/order-details/", json={
+        response2 = api_client.post("/order_details/", json={
             "quantity": 3,
             "price": product["price"],
             "order_id": order2["id_key"],
@@ -292,17 +298,18 @@ class TestStockManagementScenarios:
         }).json()
 
         client = api_client.post("/clients/", json={
-            "name": "Refund Customer",
+            "name": "Refund",
+            "lastname": "Customer",
             "email": "refund@example.com",
-            "telephone": "+3333333333",
-            "age": 40
+            "telephone": "+3333333333"
         }).json()
 
         bill = api_client.post("/bills/", json={
             "bill_number": "BILL-CANCEL-001",
             "date": date.today().isoformat(),
             "total": 150.0,
-            "payment_type": PaymentType.CARD.value
+            "payment_type": PaymentType.CARD.value,
+            "client_id": client["id_key"]
         }).json()
 
         order = api_client.post("/orders/", json={
@@ -315,7 +322,7 @@ class TestStockManagementScenarios:
         }).json()
 
         # Create order detail (deducts 2 from stock)
-        order_detail = api_client.post("/order-details/", json={
+        order_detail = api_client.post("/order_details/", json={
             "quantity": 2,
             "price": product["price"],
             "order_id": order["id_key"],
@@ -359,10 +366,10 @@ class TestClientOrderHistory:
 
         # Create Client
         client = api_client.post("/clients/", json={
-            "name": "Frequent Buyer",
+            "name": "Frequent",
+            "lastname": "Buyer",
             "email": "frequent@example.com",
-            "telephone": "+4444444444",
-            "age": 32
+            "telephone": "+4444444444"
         }).json()
 
         # Create multiple bills and orders
@@ -371,7 +378,8 @@ class TestClientOrderHistory:
                 "bill_number": f"BILL-FREQ-{i:03d}",
                 "date": date.today().isoformat(),
                 "total": 699.99,
-                "payment_type": PaymentType.CARD.value
+                "payment_type": PaymentType.CARD.value,
+                "client_id": client["id_key"]
             }).json()
 
             order = api_client.post("/orders/", json={
@@ -385,7 +393,7 @@ class TestClientOrderHistory:
 
             # Add product to each order
             product = product1 if i == 0 else product2
-            api_client.post("/order-details/", json={
+            api_client.post("/order_details/", json={
                 "quantity": 1,
                 "price": product["price"],
                 "order_id": order["id_key"],
@@ -416,17 +424,16 @@ class TestProductReviewWorkflow:
         ratings = [5, 4, 3, 5, 4]
         for i, rating in enumerate(ratings):
             client = api_client.post("/clients/", json={
-                "name": f"Reviewer {i}",
+                "name": f"Reviewer",
+                "lastname": f"{i}",
                 "email": f"reviewer{i}@example.com",
-                "telephone": f"+{5555555550 + i}",
-                "age": 25 + i
+                "telephone": f"+{5555555550 + i}"
             }).json()
 
             review_response = api_client.post("/reviews/", json={
                 "rating": rating,
                 "comment": f"Review comment {i}",
-                "product_id": product["id_key"],
-                "client_id": client["id_key"]
+                "product_id": product["id_key"]
             })
             assert review_response.status_code == 201
 
@@ -465,7 +472,7 @@ class TestErrorHandling:
             "order_id": order.id_key,
             "product_id": product.id_key
         }
-        response = api_client.post("/order-details/", json=order_detail_payload)
+        response = api_client.post("/order_details/", json=order_detail_payload)
 
         # Should fail with validation error
         assert response.status_code in [400, 422, 500]
