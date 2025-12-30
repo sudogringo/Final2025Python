@@ -50,7 +50,10 @@ class BaseServiceImpl(BaseService):
 
     def update(self, id_key: int, schema: BaseSchema) -> BaseSchema:
         """Update data"""
-        return self.repository.update(id_key, schema.model_dump(exclude_unset=True))
+        changes = schema.model_dump(exclude_unset=True)
+        if "id_key" in changes:
+            del changes["id_key"]
+        return self.repository.update(id_key, changes)
 
     def delete(self, id_key: int) -> None:
         """Delete data"""

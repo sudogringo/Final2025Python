@@ -25,6 +25,7 @@ from services.product_service import ProductService
 from repositories.base_repository_impl import InstanceNotFoundError
 from middleware.rate_limiter import RateLimiterMiddleware
 from models.enums import PaymentType, DeliveryMethod, Status
+from datetime import date
 
 
 # ============================================================================
@@ -51,11 +52,29 @@ def mock_redis():
     return redis_mock
 
 
+from config.database import get_db
+
+
 @pytest.fixture
-def test_app_with_redis(mock_redis):
-    """Create test FastAPI app with mocked Redis"""
+def test_app_with_redis(db_session_factory, mock_redis):
+    """Create test FastAPI app with mocked Redis and DB override."""
     with patch('middleware.rate_limiter.get_redis_client', return_value=mock_redis):
         app = create_fastapi_app()
+
+        # Override get_db dependency
+        def override_get_db():
+            session = db_session_factory()
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        
         client = TestClient(app)
         yield client, mock_redis
 
@@ -167,12 +186,13 @@ class TestP10ProductDeletionValidation:
     3. Error message suggests marking as inactive
     """
 
-    def test_delete_product_without_sales_history_success(self, db_session):
+    def test_delete_product_without_sales_history_success(self, db_session_factory):
         """Test deletion of product without any sales history"""
+        session = db_session_factory()
         # Setup: Create category and product
         category = CategoryModel(name="Electronics")
-        db_session.add(category)
-        db_session.commit()
+        session.add(category)
+        session.commit()
 
         product = ProductModel(
             name="Test Product",
@@ -180,12 +200,12 @@ class TestP10ProductDeletionValidation:
             stock=10,
             category_id=category.id_key
         )
-        db_session.add(product)
-        db_session.commit()
+        session.add(product)
+        session.commit()
         product_id = product.id_key
 
         # Execute: Delete product
-        service = ProductService(db_session)
+        service = ProductService(session)
         service.delete(product_id)
 
         # Verify: Product was deleted
@@ -193,16 +213,17 @@ class TestP10ProductDeletionValidation:
             service.get_one(product_id)
 
 
-    def test_delete_product_with_sales_history_blocked(self, db_session):
+    def test_delete_product_with_sales_history_blocked(self, db_session_factory):
         """
         Test P10 FIX: Cannot delete product with sales history
 
         Verifies that products with associated order details cannot be deleted
         """
+        session = db_session_factory()
         # Setup: Create complete order with order detail
         category = CategoryModel(name="Electronics")
-        db_session.add(category)
-        db_session.commit()
+        session.add(category)
+        session.commit()
 
         product = ProductModel(
             name="Laptop",
@@ -210,8 +231,8 @@ class TestP10ProductDeletionValidation:
             stock=10,
             category_id=category.id_key
         )
-        db_session.add(product)
-        db_session.commit()
+        session.add(product)
+        session.commit()
 
         client = ClientModel(
             name="John",
@@ -219,25 +240,27 @@ class TestP10ProductDeletionValidation:
             email="john@example.com",
             telephone="+1234567890"
         )
-        db_session.add(client)
-        db_session.commit()
+        session.add(client)
+        session.commit()
 
         bill = BillModel(
             bill_number="BILL-001",
             total=999.99,
-            payment_type=PaymentType.CARD
+            payment_type=PaymentType.CARD,
+            client_id=client.id_key
         )
-        db_session.add(bill)
-        db_session.commit()
+        session.add(bill)
+        session.commit()
 
         order = OrderModel(
+            date=date.today(),
             client_id=client.id_key,
             bill_id=bill.id_key,
             delivery_method=DeliveryMethod.DRIVE_THRU,
             status=Status.PENDING
         )
-        db_session.add(order)
-        db_session.commit()
+        session.add(order)
+        session.commit()
 
         # Create order detail (sales history)
         order_detail = OrderDetailModel(
@@ -246,11 +269,11 @@ class TestP10ProductDeletionValidation:
             quantity=1,
             price=999.99
         )
-        db_session.add(order_detail)
-        db_session.commit()
+        session.add(order_detail)
+        session.commit()
 
         # Execute: Try to delete product
-        service = ProductService(db_session)
+        service = ProductService(session)
 
         # Verify: Deletion is blocked with appropriate error
         with pytest.raises(ValueError) as exc_info:
@@ -267,16 +290,17 @@ class TestP10ProductDeletionValidation:
         assert retrieved_product.id_key == product.id_key
 
 
-    def test_delete_product_after_order_detail_deletion(self, db_session):
+    def test_delete_product_after_order_detail_deletion(self, db_session_factory):
         """
         Test that product CAN be deleted after all order details are removed
 
         Validates the fix works correctly when sales history is cleaned up
         """
+        session = db_session_factory()
         # Setup: Create product with sales history
         category = CategoryModel(name="Electronics")
-        db_session.add(category)
-        db_session.commit()
+        session.add(category)
+        session.commit()
 
         product = ProductModel(
             name="Mouse",
@@ -284,8 +308,8 @@ class TestP10ProductDeletionValidation:
             stock=50,
             category_id=category.id_key
         )
-        db_session.add(product)
-        db_session.commit()
+        session.add(product)
+        session.commit()
         product_id = product.id_key
 
         client = ClientModel(
@@ -294,25 +318,27 @@ class TestP10ProductDeletionValidation:
             email="jane@example.com",
             telephone="+1234567890"
         )
-        db_session.add(client)
-        db_session.commit()
+        session.add(client)
+        session.commit()
 
         bill = BillModel(
             bill_number="BILL-002",
             total=29.99,
-            payment_type=PaymentType.CASH
+            payment_type=PaymentType.CASH,
+            client_id=client.id_key
         )
-        db_session.add(bill)
-        db_session.commit()
+        session.add(bill)
+        session.commit()
 
         order = OrderModel(
+            date=date.today(),
             client_id=client.id_key,
             bill_id=bill.id_key,
             delivery_method=DeliveryMethod.ON_HAND,
             status=Status.DELIVERED
         )
-        db_session.add(order)
-        db_session.commit()
+        session.add(order)
+        session.commit()
 
         order_detail = OrderDetailModel(
             order_id=order.id_key,
@@ -320,17 +346,17 @@ class TestP10ProductDeletionValidation:
             quantity=1,
             price=29.99
         )
-        db_session.add(order_detail)
-        db_session.commit()
+        session.add(order_detail)
+        session.commit()
 
         # Step 1: Verify deletion is blocked
-        service = ProductService(db_session)
+        service = ProductService(session)
         with pytest.raises(ValueError):
             service.delete(product_id)
 
         # Step 2: Remove order detail (cleanup sales history)
-        db_session.delete(order_detail)
-        db_session.commit()
+        session.delete(order_detail)
+        session.commit()
 
         # Step 3: Now deletion should succeed
         service.delete(product_id)

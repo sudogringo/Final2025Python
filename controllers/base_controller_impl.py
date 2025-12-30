@@ -37,7 +37,7 @@ class BaseControllerImpl(BaseController):
         self.router = APIRouter(tags=tags or [])
         self.exclude_on_get = exclude_on_get
 
-        # Register all CRUD endpoints with proper dependency injection
+        # Register all CRUD routes
         self._register_routes()
 
     def _register_routes(self):
@@ -60,6 +60,10 @@ class BaseControllerImpl(BaseController):
             status_code=status.HTTP_200_OK,
             response_model_exclude=self.exclude_on_get,
         )
+        async def get_one(id_key: int, db: Session = Depends(get_db)):
+            """Get a single record by its ID."""
+            service = self.service_factory(db)
+            return service.get_one(id_key)
 
         @self.router.post("/", response_model=self.schema, status_code=status.HTTP_201_CREATED)
         async def create(

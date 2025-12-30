@@ -29,4 +29,3 @@ class ReviewSchema(BaseSchema):
         description="Product ID reference (required)"
     )
 
-    product: Optional['ProductSchema'] = None

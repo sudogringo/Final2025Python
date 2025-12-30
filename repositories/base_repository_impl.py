@@ -4,7 +4,12 @@ BaseRepository implementation with best practices and sanitized logging
 import logging
 from typing import Type, List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy.exc import NoResultFound
+from sqlalchemy import select, and_
+from typing import TypeVar, Type, Generic, List, Dict, Any, Optional
+from abc import ABC, abstractmethod
+
+from sqlalchemy.exc import NoResultFound
 
 from models.base_model import BaseModel
 from repositories.base_repository import BaseRepository
@@ -67,7 +72,6 @@ class BaseRepositoryImpl(BaseRepository):
                 raise InstanceNotFoundError(
                     f"{self.model.__name__} with id {id_key} not found"
                 )
-
             return self.schema.model_validate(model)
         except InstanceNotFoundError:
             raise
@@ -135,7 +139,7 @@ class BaseRepositoryImpl(BaseRepository):
         """
         try:
             self.session.add(model)
-            self.session.commit()
+            self.session.flush()
             self.session.refresh(model)
             return self.schema.model_validate(model)
         except Exception as e:
@@ -223,17 +227,10 @@ class BaseRepositoryImpl(BaseRepository):
                 # All validations passed - safe to update
                 setattr(instance, key, value)
 
-            self.session.commit()
+            self.session.flush()
             self.session.refresh(instance)
             return self.schema.model_validate(instance)
-
-        except InstanceNotFoundError:
-            raise
-        except ValueError:
-            self.session.rollback()
-            raise
         except Exception as e:
-            self.session.rollback()
             self.logger.error(f"Error updating {self.model.__name__} with id {id_key}: {e}")
             raise
 
@@ -248,21 +245,14 @@ class BaseRepositoryImpl(BaseRepository):
             InstanceNotFoundError: If the record is not found
         """
         try:
-            stmt = select(self.model).where(self.model.id_key == id_key)
-            model = self.session.scalars(stmt).first()
-
-            if model is None:
-                raise InstanceNotFoundError(
-                    f"{self.model.__name__} with id {id_key} not found"
-                )
-
-            self.session.delete(model)
-            self.session.commit()
-        except InstanceNotFoundError:
-            raise
+            stmt = select(self.model).filter_by(id_key=id_key)
+            instance = self.session.execute(stmt).scalar_one()
+            self.session.delete(instance)
+            self.session.flush()
+        except NoResultFound:
+            raise InstanceNotFoundError(f"{self.model.__name__} with id {id_key} not found")
         except Exception as e:
-            self.session.rollback()
-            self.logger.error(f"Error deleting {self.model.__name__} with id {id_key}: {e}")
+            self.logger.error(f"Error removing {self.model.__name__} with id {id_key}: {e}")
             raise
 
     def save_all(self, models: List[BaseModel]) -> List[BaseSchema]:
@@ -277,14 +267,8 @@ class BaseRepositoryImpl(BaseRepository):
         """
         try:
             self.session.add_all(models)
-            self.session.commit()
-
-            # Refresh all models
-            for model in models:
-                self.session.refresh(model)
-
+            self.session.flush()
             return [self.schema.model_validate(model) for model in models]
         except Exception as e:
-            self.session.rollback()
-            self.logger.error(f"Error saving multiple {self.model.__name__}: {e}")
+            self.logger.error(f"Error saving multiple {self.model.__name__} instances: {e}")
             raise

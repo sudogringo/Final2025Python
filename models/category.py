@@ -7,5 +7,5 @@ from models.base_model import BaseModel
 class CategoryModel(BaseModel):
     __tablename__ = 'categories'
 
-    name = Column(String, unique=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
     products = relationship('ProductModel', back_populates='category', lazy="select")

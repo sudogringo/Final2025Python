@@ -22,5 +22,5 @@ class ClientSchema(BaseSchema):
         pattern=r'^\+?[1-9]\d{6,19}$',
         description="Client's phone number (7-20 digits, optional + prefix)"
     )
-    addresses: Optional[List['AddressSchema']] = []
-    orders: Optional[List['OrderSchema']] = []
+    age: Optional[int] = Field(None, ge=18, le=120, description="Client's age")
+
