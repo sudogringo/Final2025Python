@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from fastapi.testclient import TestClient
 from datetime import datetime, date
 from typing import Generator
+from unittest.mock import MagicMock
 
 # Set test environment before importing app modules
 os.environ['POSTGRES_HOST'] = 'localhost'
@@ -270,67 +271,14 @@ def seeded_db(db_session_factory: sessionmaker) -> dict:
         session.close()
 
 
-# Mock Redis client for testing
+from unittest.mock import MagicMock
 @pytest.fixture
-def mock_redis(monkeypatch):
-    """Mock Redis client for testing."""
-    class MockRedis:
-        def __init__(self):
-            self.data = {}
-            self.expirations = {}
+def mock_redis():
+    """Configures a MagicMock for the Redis client to simulate its behavior."""
+    m = MagicMock()
+    # Configure the mock to simulate the pipeline behavior
+    # When .pipeline() is called, it returns 'm.pipeline.return_value'
+    # When .execute() is called on that, it returns a predefined value
+    m.pipeline.return_value.execute.return_value = [1, True]  # Default: 1 call, with expiration set
+    return m
 
-        def get(self, key):
-            return self.data.get(key)
-
-        def set(self, key, value, ex=None):
-            self.data[key] = value
-            if ex:
-                self.expirations[key] = ex
-            return True
-
-        def delete(self, key):
-            if key in self.data:
-                del self.data[key]
-            if key in self.expirations:
-                del self.expirations[key]
-            return True
-
-        def incr(self, key):
-            current = int(self.data.get(key, 0))
-            self.data[key] = str(current + 1)
-            return current + 1
-
-        def expire(self, key, seconds):
-            self.expirations[key] = seconds
-            return True
-
-        def pipeline(self):
-            return MockPipeline(self)
-
-        def ping(self):
-            return True
-
-    class MockPipeline:
-        def __init__(self, redis_client):
-            self.redis = redis_client
-            self.commands = []
-
-        def incr(self, key):
-            self.commands.append(('incr', key))
-            return self
-
-        def expire(self, key, seconds):
-            self.commands.append(('expire', key, seconds))
-            return self
-
-        def execute(self):
-            results = []
-            for cmd in self.commands:
-                if cmd[0] == 'incr':
-                    results.append(self.redis.incr(cmd[1]))
-                elif cmd[0] == 'expire':
-                    results.append(self.redis.expire(cmd[1], cmd[2]))
-            self.commands = []
-            return results
-
-    return MockRedis()

@@ -1,3 +1,37 @@
+# Plan to fix `TypeError: missing 1 required positional argument: 'controller_instance'`
+
+**Reasoning for Failures:**
+
+The `TypeError: missing 1 required positional argument: 'controller_instance'` arises directly from the implementation of the `EndpointRateLimiter` decorator in `middleware/endpoint_rate_limiter.py`.
+
+Specifically, the `wrapper` function within the `__call__` method of `EndpointRateLimiter` has the signature:
+
+```python
+        async def wrapper(controller_instance: Any, *args, **kwargs):
+            # ...
+            return await func(controller_instance, *args, **kwargs)
+```
+
+When this decorator (`@order_rate_limit`) is applied to an inner function in `OrderDetailController._register_routes`, such as:
+
+```python
+        @self.router.post("/", response_model=None, status_code=status.HTTP_201_CREATED)
+        @order_rate_limit # <--- This decorator is applied
+        async def create(request: Request, db: Session = Depends(get_db)):
+            # ...
+```
+FastAPI attempts to call the *wrapped* `create` function. The wrapped function's signature, as seen by FastAPI, is actually the `wrapper`'s signature. Since the `create` function as defined by `OrderDetailController` does not explicitly take a `controller_instance` argument (it relies on `self` being captured via closure), FastAPI finds this argument missing when trying to invoke the endpoint, leading to the `TypeError`.
+
+The `controller_instance` parameter in the `wrapper` is a remnant of a potential design where the decorator expected to be applied directly to a class method (where `self` would be the first argument), and the developer chose to rename `self` to `controller_instance` for internal clarity within the decorator. However, when decorating a nested function, this explicit parameter conflicts with FastAPI's expected argument passing.
+
+**The Solution:**
+
+The `wrapper` function in the `EndpointRateLimiter` should simply pass through the arguments it receives directly to the original `func`, without explicitly declaring `controller_instance`. The original decorated function (`create` in `OrderDetailController`) will correctly get its context (`self` from the enclosing controller instance) via its closure, and FastAPI will handle `request` and `db` via dependency injection.
+
+---
+**Proposed Changes for `middleware/endpoint_rate_limiter.py`:**
+
+```python
 """
 Endpoint-Specific Rate Limiter
 
@@ -37,7 +71,6 @@ class EndpointRateLimiter:
         """
         self.calls = calls
         self.period = period
-        # Removed self.redis_client = get_redis_client() from here
 
     def __call__(self, func: Callable) -> Callable:
         """
@@ -50,7 +83,9 @@ class EndpointRateLimiter:
             Wrapped function with rate limiting
         """
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs): # Removed controller_instance from signature
+        # REMOVE controller_instance from signature - it's not needed for inner functions
+        # The inner function captures 'self' (the controller instance) via closure.
+        async def wrapper(*args, **kwargs):
             # Dynamically get the redis_client when the wrapper is called
             # This ensures that if get_redis_client is patched, the patched version is used.
             redis_client = get_redis_client()
@@ -68,7 +103,8 @@ class EndpointRateLimiter:
 
             if not request:
                 logger.error(f"Request object not found in arguments for {func.__name__}")
-                return await func(*args, **kwargs) # Removed controller_instance
+                # Call original function without controller_instance
+                return await func(*args, **kwargs)
 
 
             # Get client IP
@@ -84,7 +120,8 @@ class EndpointRateLimiter:
                     f"⚠️ Endpoint rate limiting disabled for {func.__name__} (Redis not available). "
                     "Requests will be allowed without restriction."
                 )
-                return await func(*args, **kwargs) # Removed controller_instance
+                # Call original function without controller_instance
+                return await func(*args, **kwargs)
 
             try:
                 # Get current request count
@@ -129,7 +166,8 @@ class EndpointRateLimiter:
                     f"Endpoint rate limit check passed for {client_ip} "
                     f"on {endpoint_path}: {remaining} remaining"
                 )
-                return await func(*args, **kwargs) # Removed controller_instance
+                # Call original function without controller_instance
+                return await func(*args, **kwargs)
 
             except HTTPException:
                 raise
@@ -137,64 +175,11 @@ class EndpointRateLimiter:
                 logger.error(f"❌ Error in endpoint rate limiting for {func.__name__}: {e}. "
                              "Failing open and allowing request.")
                 # Fail open - allow request if rate limiting fails
-                return await func(*args, **kwargs) # Removed controller_instance
+                # Call original function without controller_instance
+                return await func(*args, **kwargs)
 
         return wrapper
+# ... rest of the file ...
+```
 
-
-# =============================================================================
-# PRESET RATE LIMITERS FOR COMMON USE CASES
-# =============================================================================
-
-# Strict limit for order creation (prevents spam orders)
-order_rate_limit = EndpointRateLimiter(calls=10, period=60)  # 10 orders/min
-
-# Moderate limit for client creation (prevents account spam)
-client_rate_limit = EndpointRateLimiter(calls=5, period=60)  # 5 clients/min
-
-# Strict limit for reviews (prevents review bombing)
-review_rate_limit = EndpointRateLimiter(calls=3, period=60)  # 3 reviews/min
-
-# Generous limit for searches (allow frequent searches)
-search_rate_limit = EndpointRateLimiter(calls=30, period=60)  # 30 searches/min
-
-
-# =============================================================================
-# USAGE EXAMPLES
-# =============================================================================
-"""
-# Example 1: Protect order creation endpoint
-from middleware.endpoint_rate_limiter import order_rate_limit
-
-@router.post("/")
-@order_rate_limit
-async def create_order(
-    request: Request,
-    order: OrderSchema,
-    db: Session = Depends(get_db)
-):
-    service = OrderService(db)
-    return service.save(order)
-
-
-# Example 2: Custom rate limit
-from middleware.endpoint_rate_limiter import EndpointRateLimiter
-
-custom_limiter = EndpointRateLimiter(calls=20, period=300)  # 20 per 5 minutes
-
-@router.post("/expensive-operation")
-@custom_limiter
-async def expensive_operation(request: Request):
-    # Expensive computation here
-    return result
-
-
-# Example 3: Multiple rate limiters
-# Apply both global (via middleware) and endpoint-specific limits
-
-# Global: 100 requests/min to entire API
-# Endpoint: 10 order creations/min
-
-# If user hits 100 requests/min globally → 429 from middleware
-# If user hits 10 order creations/min → 429 from endpoint limiter
-"""
+I request permission to apply these changes.
