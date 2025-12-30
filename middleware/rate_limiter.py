@@ -9,7 +9,10 @@ import logging
 from typing import Callable
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
+from typing import Any
+
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from config.redis_config import get_redis_client
 
@@ -23,28 +26,16 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     Limits requests per IP address within a time window.
     """
 
-    def __init__(self, app, calls: int = 100, period: int = 60):
-        """
-        Initialize rate limiter
-
-        Args:
-            app: FastAPI application
-            calls: Maximum number of requests allowed
-            period: Time window in seconds
-        """
+    def __init__(self, app: ASGIApp, calls: int = 100, period: int = 60, redis_client: Any = None):
         super().__init__(app)
-        self.calls = int(os.getenv('RATE_LIMIT_CALLS', str(calls)))
-        self.period = int(os.getenv('RATE_LIMIT_PERIOD', str(period)))
-        self.enabled = os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
-        self.redis_client = get_redis_client()
-
-        if self.enabled and self.redis_client:
-            logger.info(
-                f"✅ Rate limiting enabled: {self.calls} requests per "
-                f"{self.period} seconds per IP"
-            )
+        self.calls = calls
+        self.period = period
+        self.redis_client = redis_client
+        self.enabled = self.redis_client is not None
+        if self.redis_client is None:
+            logger.warning("⚠️ Rate limiting disabled (Redis not available)")
         else:
-            logger.warning("⚠️  Rate limiting disabled (Redis not available)")
+            logger.info("✅ Rate limiting enabled: %s requests per %s seconds per IP", calls, period)
 
     async def dispatch(self, request: Request, call_next: Callable):
         """

@@ -10,13 +10,13 @@ from middleware.rate_limiter import RateLimiterMiddleware
 
 
 @pytest.fixture
-def app_with_rate_limiter_factory():
+def app_with_rate_limiter_factory(mock_redis):
     """
     Fixture factory to create a test app with the RateLimiterMiddleware.
     This centralizes the setup logic for creating the app, patching Redis,
     and adding the middleware.
     """
-    def _create_app(mock_redis, calls, period):
+    def _create_app(mock_redis_arg, calls, period):
         app = FastAPI()
 
         @app.get("/test")
@@ -35,10 +35,10 @@ def app_with_rate_limiter_factory():
         async def endpoint2():
             return {"endpoint": "2"}
 
-        # The middleware gets the redis client via this function,
-        # so we patch it to return our mock.
-        with patch('middleware.rate_limiter.get_redis_client', return_value=mock_redis):
-            app.add_middleware(RateLimiterMiddleware, calls=calls, period=period)
+        # Patch get_redis_client for both middleware modules
+        with patch('middleware.rate_limiter.get_redis_client', return_value=mock_redis_arg), \
+             patch('middleware.endpoint_rate_limiter.get_redis_client', return_value=mock_redis_arg):
+            app.add_middleware(RateLimiterMiddleware, calls=calls, period=period, redis_client=mock_redis_arg)
 
         return app
     return _create_app
