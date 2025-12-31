@@ -73,9 +73,7 @@ def health_check():
     component_statuses = []
 
     # Database health check with latency thresholds
-    start = time.time()
-    db_status = check_connection()
-    db_latency_ms = round((time.time() - start) * 1000, 2)
+    db_status, db_latency_ms = check_connection()
 
     if not db_status:
         db_health = "critical"
@@ -127,7 +125,6 @@ def health_check():
         else:
             pool_health = "healthy"
             component_statuses.append("healthy")
-        print(f"component_statuses after pool: {component_statuses}")
 
         checks["db_pool"] = {
             "health": pool_health,

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from datetime import datetime, date
 from typing import Generator, Any
 from unittest.mock import MagicMock, patch
+import collections # Import collections for deque
 
 # Set test environment before importing app modules
 os.environ['POSTGRES_HOST'] = 'localhost'
@@ -65,7 +66,7 @@ def db_session_factory(engine) -> Generator[sessionmaker, None, None]:
 
 
 @pytest.fixture(scope="function")
-def api_client(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Generator[TestClient, None, None]: # Added mock_redis
+def api_client(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Generator[TestClient, None, None]:
     """Create a test client for API testing."""
     mock_redis.reset_store() # Reset Redis mock state for each test function
     app = create_fastapi_app()
@@ -87,6 +88,37 @@ def api_client(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Gener
     from config import redis_config # Import redis_config to patch its get_client method
     with patch.object(redis_config.redis_config, 'get_client', return_value=mock_redis):
         with TestClient(app, cookies={}) as test_client:
+            yield test_client
+
+
+# Removed TimeSequenceCallable as it's no longer needed for this approach.
+
+@pytest.fixture(scope="function")
+def client_with_time_mock(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Generator[TestClient, None, None]:
+    """Create a test client for API testing."""
+    mock_redis.reset_store() # Reset Redis mock state for each test function
+    
+    app = create_fastapi_app()
+
+    def override_get_db():
+        session = db_session_factory()
+        try:
+            yield session
+            session.commit() # Commit changes made by the request
+        except Exception:
+            session.rollback() # Rollback on exception
+            raise
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Patch get_redis_client to return our mock
+    from config import redis_config # Import redis_config to patch its get_client method
+    with patch.object(redis_config.redis_config, 'get_client', return_value=mock_redis):
+        with TestClient(app, cookies={}) as test_client:
+            # test_client.mock_time is no longer exposed here
+            # test_client.time_sequencer is no longer exposed here
             yield test_client
 
 
@@ -337,4 +369,3 @@ def mock_redis():
     m.reset_store = reset_store
 
     return m
-
