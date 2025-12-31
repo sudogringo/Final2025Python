@@ -127,6 +127,7 @@ def health_check():
         else:
             pool_health = "healthy"
             component_statuses.append("healthy")
+        print(f"component_statuses after pool: {component_statuses}")
 
         checks["db_pool"] = {
             "health": pool_health,

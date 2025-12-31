@@ -8,7 +8,7 @@ from schemas.base_schema import BaseSchema
 from services.base_service_impl import BaseServiceImpl
 from config.database import get_db
 
-T = TypeVar("T") # Revert to unbound for initial debugging
+T = TypeVar("T", bound=BaseSchema) # Re-bind T to BaseSchema
 ServiceType = TypeVar("ServiceType", bound=BaseServiceImpl)
 
 
@@ -55,26 +55,21 @@ class BaseControllerImpl(Generic[T, ServiceType]):
 
 
     def _register_routes(self):
-        """Register all CRUD routes with proper dependency injection (workaround for type errors)."""
+        """Register all CRUD routes with proper dependency injection."""
 
-        @self.router.post("/", response_model=None, status_code=status.HTTP_201_CREATED) # Workaround: response_model=None
-        async def create(request: Request, db: Session = Depends(get_db)): # Removed schema_in from signature
-            # Manually parse body for now, as schema_in is removed from signature
-            # This will break type validation temporarily, but allows app to start
-            schema_in = self.schema(**(await request.json()))
+        @self.router.post("/", response_model=self.schema, status_code=status.HTTP_201_CREATED)
+        async def create(request: Request, schema_in: self.schema, db: Session = Depends(get_db)): # Reverted schema_in
             return await self._create(request, schema_in, db)
 
-        @self.router.put("/{id_key}", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
-        async def update(request: Request, id_key: int, db: Session = Depends(get_db)): # Removed schema_in from signature
-            # Manually parse body for now
-            schema_in = self.schema(**(await request.json()))
+        @self.router.put("/{id_key}", response_model=self.schema, status_code=status.HTTP_200_OK)
+        async def update(request: Request, id_key: int, schema_in: self.schema, db: Session = Depends(get_db)): # Reverted schema_in
             return await self._update(request, id_key, schema_in, db)
 
-        @self.router.get("/", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
+        @self.router.get("/", response_model=List[self.schema], status_code=status.HTTP_200_OK, response_model_exclude=self.exclude_on_get) # Reverted response_model
         async def get_all(request: Request, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
             return await self._get_all(request, skip, limit, db)
 
-        @self.router.get("/{id_key}", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
+        @self.router.get("/{id_key}", response_model=self.schema, status_code=status.HTTP_200_OK, response_model_exclude=self.exclude_on_get) # Reverted response_model
         async def get_one(request: Request, id_key: int, db: Session = Depends(get_db)):
             return await self._get_one(request, id_key, db)
 

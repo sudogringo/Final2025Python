@@ -286,7 +286,7 @@ class TestOrderDetailEndpoints:
             "order_id": order.id_key,
             "product_id": product.id_key
         }
-        response = api_client.post("/order-details/", json=payload)
+        response = api_client.post("/order_details/", json=payload)
 
         assert response.status_code == 201
         data = response.json()
@@ -308,7 +308,7 @@ class TestOrderDetailEndpoints:
             "order_id": order.id_key,
             "product_id": product.id_key
         }
-        response = api_client.post("/order-details/", json=payload)
+        response = api_client.post("/order_details/", json=payload)
 
         assert response.status_code in [400, 422, 500]  # Should be validation error
 
@@ -323,7 +323,7 @@ class TestOrderDetailEndpoints:
             "order_id": order.id_key,
             "product_id": product.id_key
         }
-        response = api_client.post("/order-details/", json=payload)
+        response = api_client.post("/order_details/", json=payload)
 
         assert response.status_code in [400, 422, 500]  # Should be validation error
 
@@ -339,7 +339,7 @@ class TestOrderDetailEndpoints:
             "order_id": order.id_key,
             "product_id": product.id_key
         }
-        create_response = api_client.post("/order-details/", json=payload)
+        create_response = api_client.post("/order_details/", json=payload)
         order_detail_id = create_response.json()["id_key"]
 
         # Get stock after creation
@@ -347,7 +347,7 @@ class TestOrderDetailEndpoints:
         stock_after_create = product_response.json()["stock"]
 
         # Delete order detail
-        delete_response = api_client.delete(f"/order-details/{order_detail_id}")
+        delete_response = api_client.delete(f"/order_details/{order_detail_id}")
         assert delete_response.status_code == 204
 
         # Verify stock was restored

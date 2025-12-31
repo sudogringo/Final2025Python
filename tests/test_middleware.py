@@ -159,15 +159,13 @@ class TestRateLimiter:
         assert response.status_code == 200
 
         # Second request immediately (should be blocked)
-        mock_redis.pipeline.return_value.execute.return_value = [2, 1]
         response = client.get("/test")
         assert response.status_code == 429
 
-        # Wait for period to expire
-        time.sleep(1.1)
+        # Reset store to simulate expiration
+        mock_redis.reset_store()
 
-        # Third request after period (should succeed)
-        mock_redis.pipeline.return_value.execute.return_value = [1, 1]
+        # Third request after "expiration" (should succeed)
         response = client.get("/test")
         assert response.status_code == 200
 

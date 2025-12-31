@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 
 from config.logging_config import setup_logging
 from config.database import create_tables, engine
-from config.redis_config import redis_config, check_redis_connection
+from config.redis_config import redis_config, check_redis_connection, get_redis_client
 from middleware.rate_limiter import RateLimiterMiddleware
 from middleware.request_id_middleware import RequestIDMiddleware
 
@@ -101,20 +101,19 @@ def create_fastapi_app() -> FastAPI:
     logger.info(f"✅ CORS enabled for origins: {cors_origins}")
 
     # Rate limiting: 100 requests per 60 seconds per IP (configurable via env)
-    fastapi_app.add_middleware(RateLimiterMiddleware, calls=100, period=60)
-    logger.info("✅ Rate limiting enabled: 100 requests/60s per IP")
+    redis_client = get_redis_client()
+    fastapi_app.add_middleware(
+        RateLimiterMiddleware,
+        calls=100,
+        period=60,
+        redis_client=redis_client
+    )
 
     # Startup event: Check Redis connection
     @fastapi_app.on_event("startup")
     async def startup_event():
         """Run on application startup"""
         logger.info("🚀 Starting FastAPI E-commerce API...")
-
-        # Check Redis connection
-        if check_redis_connection():
-            logger.info("✅ Redis cache is available")
-        else:
-            logger.warning("⚠️  Redis cache is NOT available - running without cache")
 
     # Shutdown event: Graceful shutdown
     @fastapi_app.on_event("shutdown")

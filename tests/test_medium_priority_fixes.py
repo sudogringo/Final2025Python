@@ -8,6 +8,7 @@ Tests verify the implementation of:
 - P12: Health check with thresholds
 """
 import pytest
+import logging
 from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -32,24 +33,7 @@ from datetime import date
 # FIXTURES
 # ============================================================================
 
-@pytest.fixture
-def mock_redis():
-    """Mock Redis client for rate limiter tests"""
-    redis_mock = Mock()
-    redis_mock.ping.return_value = True
-    redis_mock.set.return_value = True
-    redis_mock.get.return_value = None
-    redis_mock.incr.return_value = 1
-    redis_mock.expire.return_value = True
 
-    # Pipeline mock
-    pipeline_mock = Mock()
-    pipeline_mock.incr.return_value = None
-    pipeline_mock.expire.return_value = None
-    pipeline_mock.execute.return_value = [1, 1]  # [incr result, expire result]
-    redis_mock.pipeline.return_value = pipeline_mock
-
-    return redis_mock
 
 
 from config.database import get_db
@@ -58,7 +42,7 @@ from config.database import get_db
 @pytest.fixture
 def test_app_with_redis(db_session_factory, mock_redis):
     """Create test FastAPI app with mocked Redis and DB override."""
-    with patch('middleware.rate_limiter.get_redis_client', return_value=mock_redis):
+    with patch('main.get_redis_client', return_value=mock_redis):
         app = create_fastapi_app()
 
         # Override get_db dependency
@@ -162,7 +146,7 @@ class TestP8RateLimiterAtomicOperations:
 
         # Setup: Pipeline returns high counter (exceeds limit)
         pipeline_mock = mock_redis.pipeline.return_value
-        pipeline_mock.execute.return_value = [101, 1]  # [incr=101, expire=success]
+        pipeline_mock.execute.side_effect = [[101, 1]]  # [incr=101, expire=success]
 
         # Execute
         response = client.get("/products")
@@ -380,12 +364,25 @@ class TestP12HealthCheckThresholds:
     3. Connection pool utilization thresholds are enforced
     4. Component health is correctly evaluated
     """
+    class TimeSequence:
+        def __init__(self, db_latency, start_time=0, increment=0.001):
+            # Sequence: [middleware_start, db_start, db_end, middleware_end, ...]
+            # db_start and db_end are used for db_latency calculation
+            self.sequence = [start_time, start_time + increment, start_time + increment + db_latency / 1000]
+            self.call_count = 0
+            self.increment = increment
 
-    def test_health_check_healthy_status(self):
+        def __call__(self):
+            if self.call_count < len(self.sequence):
+                val = self.sequence[self.call_count]
+            else:
+                # After the predefined sequence, just increment
+                val = self.sequence[-1] + (self.call_count - len(self.sequence) + 1) * self.increment
+            self.call_count += 1
+            return val
+
+    def test_health_check_healthy_status(self, api_client):
         """Test health check returns 'healthy' when all systems operational"""
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=True), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -397,7 +394,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 45
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             assert response.status_code == 200
@@ -408,84 +405,76 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["db_pool"]["health"] == "healthy"
 
 
-    def test_health_check_warning_db_latency(self):
+    def test_health_check_warning_db_latency(self, api_client, caplog):
         """
         Test P12 FIX: Health check returns 'warning' when DB latency exceeds warning threshold
 
         Warning threshold: 100ms
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
+        with caplog.at_level(logging.CRITICAL, logger="httpx"):
+            with patch('controllers.health_check.check_connection') as mock_db, \
+                 patch('controllers.health_check.check_redis_connection', return_value=True), \
+                 patch('controllers.health_check.engine.pool') as mock_pool, \
+                 patch('controllers.health_check.time.time') as mock_time:
 
-        with patch('controllers.health_check.check_connection') as mock_db, \
-             patch('controllers.health_check.check_redis_connection', return_value=True), \
-             patch('controllers.health_check.engine.pool') as mock_pool, \
-             patch('controllers.health_check.time.time') as mock_time:
+                # Setup: Simulate 150ms latency (exceeds warning 100ms, below critical 500ms)
+                mock_time.side_effect = self.TimeSequence(db_latency=150, start_time=0, increment=0.001)
+                mock_db.return_value = True
 
-            # Setup: Simulate 150ms latency (exceeds warning 100ms, below critical 500ms)
-            mock_time.side_effect = [0, 0.15]  # 150ms latency
-            mock_db.return_value = True
+                mock_pool.size.return_value = 50
+                mock_pool.overflow.return_value = 0
+                mock_pool.checkedout.return_value = 5
+                mock_pool.checkedin.return_value = 45
 
-            mock_pool.size.return_value = 50
-            mock_pool.overflow.return_value = 0
-            mock_pool.checkedout.return_value = 5
-            mock_pool.checkedin.return_value = 45
+                # Execute
+                response = api_client.get("/health_check")
 
-            # Execute
-            response = client.get("/health_check")
-
-            # Verify
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "warning"
-            assert data["checks"]["database"]["health"] == "warning"
-            assert data["checks"]["database"]["latency_ms"] == 150.0
-            assert data["checks"]["database"]["thresholds"]["warning_ms"] == 100.0
+                # Verify
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "warning"
+                assert data["checks"]["database"]["health"] == "warning"
+                assert data["checks"]["database"]["latency_ms"] == 150.0
+                assert data["checks"]["database"]["thresholds"]["warning_ms"] == 100.0
 
 
-    def test_health_check_critical_db_latency(self):
+    def test_health_check_critical_db_latency(self, api_client, caplog):
         """
         Test P12 FIX: Health check returns 'critical' when DB latency exceeds critical threshold
 
         Critical threshold: 500ms
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
+        with caplog.at_level(logging.CRITICAL, logger="httpx"):
+            with patch('controllers.health_check.check_connection') as mock_db, \
+                 patch('controllers.health_check.check_redis_connection', return_value=True), \
+                 patch('controllers.health_check.engine.pool') as mock_pool, \
+                 patch('controllers.health_check.time.time') as mock_time:
+                # Setup: Simulate 800ms latency (exceeds critical 500ms)
+                mock_time.side_effect = self.TimeSequence(db_latency=800, start_time=0, increment=0.001)
+                mock_db.return_value = True
 
-        with patch('controllers.health_check.check_connection') as mock_db, \
-             patch('controllers.health_check.check_redis_connection', return_value=True), \
-             patch('controllers.health_check.engine.pool') as mock_pool, \
-             patch('controllers.health_check.time.time') as mock_time:
+                mock_pool.size.return_value = 50
+                mock_pool.overflow.return_value = 0
+                mock_pool.checkedout.return_value = 5
+                mock_pool.checkedin.return_value = 45
 
-            # Setup: Simulate 800ms latency (exceeds critical 500ms)
-            mock_time.side_effect = [0, 0.8]  # 800ms latency
-            mock_db.return_value = True
+                # Execute
+                response = api_client.get("/health_check")
 
-            mock_pool.size.return_value = 50
-            mock_pool.overflow.return_value = 0
-            mock_pool.checkedout.return_value = 5
-            mock_pool.checkedin.return_value = 45
-
-            # Execute
-            response = client.get("/health_check")
-
-            # Verify
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "critical"
-            assert data["checks"]["database"]["health"] == "critical"
-            assert data["checks"]["database"]["latency_ms"] == 800.0
+                # Verify
+                assert response.status_code == 200
+                data = response.json()
+                assert data["status"] == "critical"
+                assert data["checks"]["database"]["health"] == "critical"
+                assert data["checks"]["database"]["latency_ms"] == 800.0
 
 
-    def test_health_check_warning_pool_utilization(self):
+    def test_health_check_warning_pool_utilization(self, api_client):
         """
         Test P12 FIX: Health check returns 'warning' when pool utilization exceeds warning threshold
 
         Warning threshold: 70%
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=True), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -497,7 +486,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 25
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             assert response.status_code == 200
@@ -508,15 +497,12 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["db_pool"]["thresholds"]["warning_percent"] == 70.0
 
 
-    def test_health_check_critical_pool_utilization(self):
+    def test_health_check_critical_pool_utilization(self, api_client):
         """
         Test P12 FIX: Health check returns 'critical' when pool utilization exceeds critical threshold
 
         Critical threshold: 90%
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=True), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -528,7 +514,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 5
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             assert response.status_code == 200
@@ -538,15 +524,12 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["db_pool"]["utilization_percent"] == 95.0
 
 
-    def test_health_check_degraded_redis_down(self):
+    def test_health_check_degraded_redis_down(self, api_client):
         """
         Test P12 FIX: Health check returns 'degraded' when Redis is down
 
         Redis is non-critical component, so overall status is 'degraded' not 'critical'
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=True), \
              patch('controllers.health_check.check_redis_connection', return_value=False), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -557,7 +540,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 45
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             assert response.status_code == 200
@@ -567,15 +550,12 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["redis"]["health"] == "degraded"
 
 
-    def test_health_check_critical_database_down(self):
+    def test_health_check_critical_database_down(self, api_client):
         """
         Test P12 FIX: Health check returns 'critical' when database is down
 
         Database is critical component
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=False), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -586,7 +566,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 50
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             assert response.status_code == 200
@@ -596,15 +576,12 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["database"]["health"] == "critical"
 
 
-    def test_health_check_includes_thresholds_in_response(self):
+    def test_health_check_includes_thresholds_in_response(self, api_client):
         """
         Test P12 FIX: Health check response includes threshold values
 
         Verifies transparency for monitoring systems
         """
-        app = create_fastapi_app()
-        client = TestClient(app)
-
         with patch('controllers.health_check.check_connection', return_value=True), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
@@ -615,7 +592,7 @@ class TestP12HealthCheckThresholds:
             mock_pool.checkedin.return_value = 45
 
             # Execute
-            response = client.get("/health_check")
+            response = api_client.get("/health_check")
 
             # Verify
             data = response.json()
