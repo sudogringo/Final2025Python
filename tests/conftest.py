@@ -84,7 +84,8 @@ def api_client(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Gener
     app.dependency_overrides[get_db] = override_get_db
 
     # Patch get_redis_client to return our mock
-    with patch('main.get_redis_client', return_value=mock_redis):
+    from config import redis_config # Import redis_config to patch its get_client method
+    with patch.object(redis_config.redis_config, 'get_client', return_value=mock_redis):
         with TestClient(app, cookies={}) as test_client:
             yield test_client
 
