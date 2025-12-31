@@ -91,10 +91,9 @@ def log_error_sanitized(
 
     # Log context if provided (sanitized)
     if context:
-        sanitized_context = {
-            k: sanitize_string(str(v)) for k, v in context.items()
-        }
-        logger_instance.debug(f"[{error_id}] Context: {sanitized_context}")
+        context_str = str(context)
+        sanitized_context_str = sanitize_string(context_str)
+        logger_instance.debug(f"[{error_id}] Context: {sanitized_context_str}")
 
     # Log full trace only in DEBUG mode
     if include_trace or logger_instance.isEnabledFor(logging.DEBUG):

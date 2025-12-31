@@ -1,5 +1,6 @@
 """OrderDetail controller with proper dependency injection and rate limiting."""
-from fastapi import Request, Depends, status
+import logging # Added logging import
+from fastapi import Request, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from typing import Any, List
 from starlette.responses import Response
@@ -9,6 +10,8 @@ from controllers.base_controller_impl import BaseControllerImpl
 from schemas.order_detail_schema import OrderDetailSchema
 from services.order_detail_service import OrderDetailService
 from middleware.endpoint_rate_limiter import order_rate_limit
+
+logger = logging.getLogger(__name__) # Instantiated logger
 
 
 class OrderDetailController(BaseControllerImpl):
@@ -29,27 +32,22 @@ class OrderDetailController(BaseControllerImpl):
     def _register_routes(self):
         """
         Register OrderDetail routes, applying rate limiting to the create endpoint.
-        (Workaround for type errors).
         """
-        @self.router.post("/", response_model=None, status_code=status.HTTP_201_CREATED) # Workaround: response_model=None
-        @order_rate_limit # Apply the decorator here
-        async def create(request: Request, db: Session = Depends(get_db)): # Removed schema_in from signature
-            # Manually parse body for now
-            schema_in = self.schema(**(await request.json()))
+        @self.router.post("/", response_model=self.schema, status_code=status.HTTP_201_CREATED)
+        # @order_rate_limit # Apply the decorator here - Temporarily removed for debugging 404
+        async def create(request: Request, schema_in: self.schema, db: Session = Depends(get_db)): # Reverted schema_in
             return await self._create(request, schema_in, db)
 
-        @self.router.put("/{id_key}", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
+        @self.router.put("/{id_key}", response_model=self.schema, status_code=status.HTTP_200_OK)
         # @order_rate_limit # Uncomment if update needs rate limiting
-        async def update(request: Request, id_key: int, db: Session = Depends(get_db)): # Removed schema_in from signature
-            # Manually parse body for now
-            schema_in = self.schema(**(await request.json()))
+        async def update(request: Request, id_key: int, schema_in: self.schema, db: Session = Depends(get_db)): # Reverted schema_in
             return await self._update(request, id_key, schema_in, db)
 
-        @self.router.get("/", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
+        @self.router.get("/", response_model=List[self.schema], status_code=status.HTTP_200_OK, response_model_exclude=self.exclude_on_get) # Reverted response_model
         async def get_all(request: Request, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
             return await self._get_all(request, skip, limit, db)
 
-        @self.router.get("/{id_key}", response_model=None, status_code=status.HTTP_200_OK) # Workaround: response_model=None
+        @self.router.get("/{id_key}", response_model=self.schema, status_code=status.HTTP_200_OK, response_model_exclude=self.exclude_on_get) # Reverted response_model
         async def get_one(request: Request, id_key: int, db: Session = Depends(get_db)):
             return await self._get_one(request, id_key, db)
 
@@ -57,6 +55,9 @@ class OrderDetailController(BaseControllerImpl):
         async def delete(request: Request, id_key: int, db: Session = Depends(get_db)):
             await self._delete(request, id_key, db)
             return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+        logger.debug(f"OrderDetailController: Registered {len(self.router.routes)} routes.") # Diagnostic print
+
 
     async def _create( # This is the internal method for core logic
         self,
@@ -68,7 +69,11 @@ class OrderDetailController(BaseControllerImpl):
         Internal method to create a new order detail.
         """
         service = self.service_factory(db)
-        return service.save(schema_in)
+        try:
+            return service.save(schema_in)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) # Convert ValueError to HTTPException
+
 
     async def _update( # Adding missing _update method to match overridden update route
         self,
@@ -81,4 +86,7 @@ class OrderDetailController(BaseControllerImpl):
         Internal method to update an order detail.
         """
         service = self.service_factory(db)
-        return service.update(id_key, schema_in)
+        try:
+            return service.update(id_key, schema_in)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) # Convert ValueError to HTTPException

@@ -334,7 +334,7 @@ class TestStockManagementScenarios:
         assert stock_after_order == 8
 
         # Cancel order (delete order detail)
-        delete_response = api_client.delete(f"/order-details/{order_detail['id_key']}")
+        delete_response = api_client.delete(f"/order_details/{order_detail['id_key']}")
         assert delete_response.status_code == 204
 
         # Verify stock is restored to 10

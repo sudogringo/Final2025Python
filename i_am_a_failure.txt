@@ -1,185 +1,35 @@
-# Plan to fix `TypeError: missing 1 required positional argument: 'controller_instance'`
+# Plan to fix `404 Not Found` for OrderDetail Endpoints (Actual Fix)
 
 **Reasoning for Failures:**
 
-The `TypeError: missing 1 required positional argument: 'controller_instance'` arises directly from the implementation of the `EndpointRateLimiter` decorator in `middleware/endpoint_rate_limiter.py`.
+The persistent `404 Not Found` errors for the `order_details` endpoints, despite routes being correctly defined within `OrderDetailController`'s router, stem from a subtle but critical mismatch between the API endpoint prefixes defined in `main.py` and the URLs used in the test suite.
 
-Specifically, the `wrapper` function within the `__call__` method of `EndpointRateLimiter` has the signature:
-
-```python
-        async def wrapper(controller_instance: Any, *args, **kwargs):
-            # ...
-            return await func(controller_instance, *args, **kwargs)
-```
-
-When this decorator (`@order_rate_limit`) is applied to an inner function in `OrderDetailController._register_routes`, such as:
-
-```python
-        @self.router.post("/", response_model=None, status_code=status.HTTP_201_CREATED)
-        @order_rate_limit # <--- This decorator is applied
-        async def create(request: Request, db: Session = Depends(get_db)):
-            # ...
-```
-FastAPI attempts to call the *wrapped* `create` function. The wrapped function's signature, as seen by FastAPI, is actually the `wrapper`'s signature. Since the `create` function as defined by `OrderDetailController` does not explicitly take a `controller_instance` argument (it relies on `self` being captured via closure), FastAPI finds this argument missing when trying to invoke the endpoint, leading to the `TypeError`.
-
-The `controller_instance` parameter in the `wrapper` is a remnant of a potential design where the decorator expected to be applied directly to a class method (where `self` would be the first argument), and the developer chose to rename `self` to `controller_instance` for internal clarity within the decorator. However, when decorating a nested function, this explicit parameter conflicts with FastAPI's expected argument passing.
+*   **In `main.py`:** The router for `OrderDetailController` is included with the prefix `/order_details` (using an underscore):
+    ```python
+    order_detail_controller = OrderDetailController()
+    fastapi_app.include_router(order_detail_controller.router, prefix="/order_details")
+    ```
+*   **In the tests (`tests/test_controllers.py` and `tests/test_integration.py`):** Requests to the `order_details` endpoints incorrectly use a hyphen (`-`) in the path:
+    ```python
+    # Example from tests/test_controllers.py
+    response = api_client.post("/order-details/", json=payload)
+    api_client.delete(f"/order-details/{order_detail_id}")
+    ```
+FastAPI, when receiving a request to `/order-details/`, cannot find a matching route because all `OrderDetailController`'s routes are registered under `/order_details`. This correctly results in a `404 Not Found`.
 
 **The Solution:**
 
-The `wrapper` function in the `EndpointRateLimiter` should simply pass through the arguments it receives directly to the original `func`, without explicitly declaring `controller_instance`. The original decorated function (`create` in `OrderDetailController`) will correctly get its context (`self` from the enclosing controller instance) via its closure, and FastAPI will handle `request` and `db` via dependency injection.
+The tests must use the correct URL paths, matching the prefix defined in `main.py`. All instances of `/order-details/` (with a hyphen) in the test files need to be changed to `/order_details/` (with an underscore).
 
 ---
-**Proposed Changes for `middleware/endpoint_rate_limiter.py`:**
+**Plan of Action:**
 
-```python
-"""
-Endpoint-Specific Rate Limiter
+1.  **Modify `tests/test_controllers.py`:**
+    *   Replace all occurrences of `/order-details/` with `/order_details/`.
+    *   Replace all occurrences of `/order-details/{id_key}` with `/order_details/{id_key}`.
 
-Provides decorators for applying custom rate limits to specific endpoints.
-While global rate limiting protects the entire API, endpoint-specific limits
-protect expensive or abuse-prone operations.
-"""
-import logging
-import functools
-from typing import Any, Callable
-from fastapi import Request, HTTPException, status
-from config.redis_config import get_redis_client
+2.  **Modify `tests/test_integration.py`:**
+    *   Replace all occurrences of `/order-details/` with `/order_details/`.
+    *   Replace all occurrences of `/order-details/{id_key}` with `/order_details/{id_key}`.
 
-logger = logging.getLogger(__name__)
-
-
-class EndpointRateLimiter:
-    """
-    Decorator for endpoint-specific rate limiting
-
-    Usage:
-        @app.post("/order_details")
-        @EndpointRateLimiter(calls=10, period=60)
-        async def create_order(data: OrderSchema):
-            ...
-
-    This allows 10 order creations per 60 seconds per IP address.
-    """
-
-    def __init__(self, calls: int, period: int):
-        """
-        Initialize rate limiter
-
-        Args:
-            calls: Maximum number of calls allowed
-            period: Time period in seconds
-        """
-        self.calls = calls
-        self.period = period
-
-    def __call__(self, func: Callable) -> Callable:
-        """
-        Decorator implementation
-
-        Args:
-            func: The function to rate limit
-
-        Returns:
-            Wrapped function with rate limiting
-        """
-        @functools.wraps(func)
-        # REMOVE controller_instance from signature - it's not needed for inner functions
-        # The inner function captures 'self' (the controller instance) via closure.
-        async def wrapper(*args, **kwargs):
-            # Dynamically get the redis_client when the wrapper is called
-            # This ensures that if get_redis_client is patched, the patched version is used.
-            redis_client = get_redis_client()
-            enabled = redis_client is not None
-
-            # Get the request object from args or kwargs
-            request = None
-            for arg in args:
-                if isinstance(arg, Request):
-                    request = arg
-                    break
-            if not request:
-                # Handle case where Request is not directly in args (e.g., if it's a kwarg)
-                request = kwargs.get("request")
-
-            if not request:
-                logger.error(f"Request object not found in arguments for {func.__name__}")
-                # Call original function without controller_instance
-                return await func(*args, **kwargs)
-
-
-            # Get client IP
-            client_ip = request.client.host if request.client else "unknown"
-
-            # Build rate limit key for this endpoint
-            endpoint_path = request.url.path
-            key = f"rate_limit:endpoint:{endpoint_path}:{client_ip}"
-
-            # Check if Redis is available
-            if not enabled:
-                logger.warning(
-                    f"⚠️ Endpoint rate limiting disabled for {func.__name__} (Redis not available). "
-                    "Requests will be allowed without restriction."
-                )
-                # Call original function without controller_instance
-                return await func(*args, **kwargs)
-
-            try:
-                # Get current request count
-                current = await redis_client.get(key) # Use await here
-
-                if current is None:
-                    # First request in this period
-                    pipe = redis_client.pipeline()
-                    pipe.set(key, 1)
-                    pipe.expire(key, self.period)
-                    await pipe.execute() # Use await here
-                    remaining = self.calls - 1
-                else:
-                    current = int(current)
-
-                    if current >= self.calls:
-                        # Rate limit exceeded
-                        ttl = await redis_client.ttl(key) # Use await here
-                        logger.warning(
-                            f"🚫 Endpoint rate limit exceeded for {client_ip} "
-                            f"on {endpoint_path}: {current}/{self.calls}"
-                        )
-                        raise HTTPException(
-                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                            detail=f"Rate limit exceeded for this endpoint. "
-                                   f"Maximum {self.calls} requests per {self.period} seconds. "
-                                   f"Try again in {ttl} seconds.",
-                            headers={
-                                "X-RateLimit-Limit": str(self.calls),
-                                "X-RateLimit-Remaining": "0",
-                                "X-RateLimit-Reset": str(ttl),
-                                "Retry-After": str(ttl),
-                            }
-                        )
-
-                    # Increment counter
-                    await redis_client.incr(key) # Use await here
-                    remaining = self.calls - current - 1
-
-                # Execute the endpoint
-                logger.debug(
-                    f"Endpoint rate limit check passed for {client_ip} "
-                    f"on {endpoint_path}: {remaining} remaining"
-                )
-                # Call original function without controller_instance
-                return await func(*args, **kwargs)
-
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.error(f"❌ Error in endpoint rate limiting for {func.__name__}: {e}. "
-                             "Failing open and allowing request.")
-                # Fail open - allow request if rate limiting fails
-                # Call original function without controller_instance
-                return await func(*args, **kwargs)
-
-        return wrapper
-# ... rest of the file ...
-```
-
-I request permission to apply these changes.
+After applying these changes, the `OrderDetailEndpoints` tests should correctly hit the registered routes.

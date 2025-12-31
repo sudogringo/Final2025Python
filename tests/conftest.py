@@ -8,8 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from fastapi.testclient import TestClient
 from datetime import datetime, date
-from typing import Generator
-from unittest.mock import MagicMock
+from typing import Generator, Any
+from unittest.mock import MagicMock, patch
 
 # Set test environment before importing app modules
 os.environ['POSTGRES_HOST'] = 'localhost'
@@ -65,8 +65,9 @@ def db_session_factory(engine) -> Generator[sessionmaker, None, None]:
 
 
 @pytest.fixture(scope="function")
-def api_client(db_session_factory: sessionmaker) -> Generator[TestClient, None, None]:
+def api_client(db_session_factory: sessionmaker, mock_redis: MagicMock) -> Generator[TestClient, None, None]: # Added mock_redis
     """Create a test client for API testing."""
+    mock_redis.reset_store() # Reset Redis mock state for each test function
     app = create_fastapi_app()
 
     def override_get_db():
@@ -82,8 +83,10 @@ def api_client(db_session_factory: sessionmaker) -> Generator[TestClient, None, 
 
     app.dependency_overrides[get_db] = override_get_db
 
-    with TestClient(app) as test_client:
-        yield test_client
+    # Patch get_redis_client to return our mock
+    with patch('main.get_redis_client', return_value=mock_redis):
+        with TestClient(app, cookies={}) as test_client:
+            yield test_client
 
 
 # Model fixtures
@@ -271,14 +274,66 @@ def seeded_db(db_session_factory: sessionmaker) -> dict:
         session.close()
 
 
-from unittest.mock import MagicMock
 @pytest.fixture
 def mock_redis():
     """Configures a MagicMock for the Redis client to simulate its behavior."""
+    _redis_store = {}
+
+    def mock_get(key):
+        return _redis_store.get(key)
+
+    def mock_incr(key):
+        _redis_store[key] = int(_redis_store.get(key) or 0) + 1
+        return _redis_store[key]
+
+    def mock_set(key, value):
+        _redis_store[key] = value
+
+    def mock_expire(key, time):
+        return True
+
+    def mock_ttl(key):
+        return 60
+
     m = MagicMock()
-    # Configure the mock to simulate the pipeline behavior
-    # When .pipeline() is called, it returns 'm.pipeline.return_value'
-    # When .execute() is called on that, it returns a predefined value
-    m.pipeline.return_value.execute.return_value = [1, True]  # Default: 1 call, with expiration set
+    m.get.side_effect = mock_get
+    m.incr.side_effect = mock_incr
+    m.set.side_effect = mock_set
+    m.expire.side_effect = mock_expire
+    m.ttl.side_effect = mock_ttl
+    m.ping.return_value = True
+
+    # Mock pipeline behavior
+    pipeline_mock = MagicMock()
+
+    # Store commands in a list
+    _pipeline_commands = []
+
+    def _pipeline_incr(key):
+        _pipeline_commands.append(("incr", key))
+
+    def _pipeline_expire(key, time):
+        _pipeline_commands.append(("expire", key, time))
+
+    def _pipeline_execute():
+        results = []
+        for cmd in _pipeline_commands:
+            if cmd[0] == "incr":
+                results.append(mock_incr(cmd[1]))
+            elif cmd[0] == "expire":
+                results.append(mock_expire(cmd[1], cmd[2]))
+        _pipeline_commands.clear()
+        return results
+
+    pipeline_mock.incr.side_effect = _pipeline_incr
+    pipeline_mock.expire.side_effect = _pipeline_expire
+    pipeline_mock.execute.side_effect = _pipeline_execute
+    m.pipeline.return_value = pipeline_mock
+
+    def reset_store():
+        _redis_store.clear()
+        _pipeline_commands.clear()
+    m.reset_store = reset_store
+
     return m
 
