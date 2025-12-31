@@ -1,6 +1,7 @@
 import os
 import logging
-from typing import Generator
+import time # Import time module
+from typing import Generator, Tuple
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -93,13 +94,16 @@ def drop_database():
         raise
 
 
-def check_connection() -> bool:
-    """Check if database connection is working."""
+def check_connection() -> Tuple[bool, float]:
+    """Check if database connection is working and measure latency."""
+    start_time = time.time()
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-        logger.info("Database connection established.")
-        return True
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+        logger.info(f"Database connection established with latency: {latency_ms}ms.")
+        return True, latency_ms
     except Exception as e:
-        logger.error(f"Error connecting to database: {e}")
-        return False
+        latency_ms = round((time.time() - start_time) * 1000, 2) # Measure latency even on failure
+        logger.error(f"Error connecting to database: {e} (Latency: {latency_ms}ms)")
+        return False, latency_ms

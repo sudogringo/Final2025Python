@@ -29,9 +29,9 @@ from models.enums import PaymentType, DeliveryMethod, Status
 from datetime import date
 
 
-# ============================================================================
+# ============================================================================ 
 # FIXTURES
-# ============================================================================
+# ============================================================================ 
 
 
 
@@ -63,9 +63,9 @@ def test_app_with_redis(db_session_factory, mock_redis):
         yield client, mock_redis
 
 
-# ============================================================================
+# ============================================================================ 
 # P8: RATE LIMITER ATOMIC PIPELINE VERIFICATION
-# ============================================================================
+# ============================================================================ 
 
 class TestP8RateLimiterAtomicOperations:
     """
@@ -156,9 +156,9 @@ class TestP8RateLimiterAtomicOperations:
         assert "Rate limit exceeded" in response.json()["detail"]
 
 
-# ============================================================================
+# ============================================================================ 
 # P10: PRODUCT DELETION WITH SALES HISTORY VALIDATION
-# ============================================================================
+# ============================================================================ 
 
 class TestP10ProductDeletionValidation:
     """
@@ -350,9 +350,9 @@ class TestP10ProductDeletionValidation:
             service.get_one(product_id)
 
 
-# ============================================================================
+# ============================================================================ 
 # P12: HEALTH CHECK WITH THRESHOLDS
-# ============================================================================
+# ============================================================================ 
 
 class TestP12HealthCheckThresholds:
     """
@@ -364,26 +364,9 @@ class TestP12HealthCheckThresholds:
     3. Connection pool utilization thresholds are enforced
     4. Component health is correctly evaluated
     """
-    class TimeSequence:
-        def __init__(self, db_latency, start_time=0, increment=0.001):
-            # Sequence: [middleware_start, db_start, db_end, middleware_end, ...]
-            # db_start and db_end are used for db_latency calculation
-            self.sequence = [start_time, start_time + increment, start_time + increment + db_latency / 1000]
-            self.call_count = 0
-            self.increment = increment
-
-        def __call__(self):
-            if self.call_count < len(self.sequence):
-                val = self.sequence[self.call_count]
-            else:
-                # After the predefined sequence, just increment
-                val = self.sequence[-1] + (self.call_count - len(self.sequence) + 1) * self.increment
-            self.call_count += 1
-            return val
-
     def test_health_check_healthy_status(self, api_client):
         """Test health check returns 'healthy' when all systems operational"""
-        with patch('controllers.health_check.check_connection', return_value=True), \
+        with patch('controllers.health_check.check_connection', return_value=(True, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -412,22 +395,18 @@ class TestP12HealthCheckThresholds:
         Warning threshold: 100ms
         """
         with caplog.at_level(logging.CRITICAL, logger="httpx"):
-            with patch('controllers.health_check.check_connection') as mock_db, \
+            with patch('controllers.health_check.check_connection', return_value=(True, 150.0)), \
                  patch('controllers.health_check.check_redis_connection', return_value=True), \
-                 patch('controllers.health_check.engine.pool') as mock_pool, \
-                 patch('controllers.health_check.time.time') as mock_time:
+                 patch('controllers.health_check.engine.pool') as mock_pool:
 
                 # Setup: Simulate 150ms latency (exceeds warning 100ms, below critical 500ms)
-                mock_time.side_effect = self.TimeSequence(db_latency=150, start_time=0, increment=0.001)
-                mock_db.return_value = True
-
                 mock_pool.size.return_value = 50
                 mock_pool.overflow.return_value = 0
                 mock_pool.checkedout.return_value = 5
                 mock_pool.checkedin.return_value = 45
 
                 # Execute
-                response = api_client.get("/health_check")
+                response = api_client.get("/health_check/")
 
                 # Verify
                 assert response.status_code == 200
@@ -445,21 +424,17 @@ class TestP12HealthCheckThresholds:
         Critical threshold: 500ms
         """
         with caplog.at_level(logging.CRITICAL, logger="httpx"):
-            with patch('controllers.health_check.check_connection') as mock_db, \
+            with patch('controllers.health_check.check_connection', return_value=(True, 800.0)), \
                  patch('controllers.health_check.check_redis_connection', return_value=True), \
-                 patch('controllers.health_check.engine.pool') as mock_pool, \
-                 patch('controllers.health_check.time.time') as mock_time:
+                 patch('controllers.health_check.engine.pool') as mock_pool:
                 # Setup: Simulate 800ms latency (exceeds critical 500ms)
-                mock_time.side_effect = self.TimeSequence(db_latency=800, start_time=0, increment=0.001)
-                mock_db.return_value = True
-
                 mock_pool.size.return_value = 50
                 mock_pool.overflow.return_value = 0
                 mock_pool.checkedout.return_value = 5
                 mock_pool.checkedin.return_value = 45
 
                 # Execute
-                response = api_client.get("/health_check")
+                response = api_client.get("/health_check/")
 
                 # Verify
                 assert response.status_code == 200
@@ -475,7 +450,7 @@ class TestP12HealthCheckThresholds:
 
         Warning threshold: 70%
         """
-        with patch('controllers.health_check.check_connection', return_value=True), \
+        with patch('controllers.health_check.check_connection', return_value=(True, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -503,7 +478,7 @@ class TestP12HealthCheckThresholds:
 
         Critical threshold: 90%
         """
-        with patch('controllers.health_check.check_connection', return_value=True), \
+        with patch('controllers.health_check.check_connection', return_value=(True, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -530,7 +505,7 @@ class TestP12HealthCheckThresholds:
 
         Redis is non-critical component, so overall status is 'degraded' not 'critical'
         """
-        with patch('controllers.health_check.check_connection', return_value=True), \
+        with patch('controllers.health_check.check_connection', return_value=(True, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=False), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -556,7 +531,7 @@ class TestP12HealthCheckThresholds:
 
         Database is critical component
         """
-        with patch('controllers.health_check.check_connection', return_value=False), \
+        with patch('controllers.health_check.check_connection', return_value=(False, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -582,7 +557,7 @@ class TestP12HealthCheckThresholds:
 
         Verifies transparency for monitoring systems
         """
-        with patch('controllers.health_check.check_connection', return_value=True), \
+        with patch('controllers.health_check.check_connection', return_value=(True, 0.0)), \
              patch('controllers.health_check.check_redis_connection', return_value=True), \
              patch('controllers.health_check.engine.pool') as mock_pool:
 
@@ -608,9 +583,9 @@ class TestP12HealthCheckThresholds:
             assert data["checks"]["db_pool"]["thresholds"]["critical_percent"] == 90.0
 
 
-# ============================================================================
+# ============================================================================ 
 # TEST SUMMARY
-# ============================================================================
+# ============================================================================ 
 
 """
 TEST COVERAGE SUMMARY:
