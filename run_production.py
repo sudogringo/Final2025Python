@@ -28,6 +28,11 @@ LIMIT_CONCURRENCY = int(os.getenv('LIMIT_CONCURRENCY', '1000'))
 LIMIT_MAX_REQUESTS = int(os.getenv('LIMIT_MAX_REQUESTS', '10000'))
 
 if __name__ == "__main__":
+    # Initialize database connection
+    print("🔌 Initializing database connection...")
+    from config.database import initialize_db_connection
+    initialize_db_connection()
+
     # Create database tables before starting server
     print("📦 Creating database tables...")
     try:

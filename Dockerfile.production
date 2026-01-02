@@ -62,6 +62,9 @@ WORKDIR /app
 # Copy application code
 COPY --chown=appuser:appuser . .
 
+# Grant execution permissions for scripts
+RUN chmod -R +x /app
+
 # Switch to non-root user
 USER appuser
 
