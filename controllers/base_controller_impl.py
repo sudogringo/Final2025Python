@@ -42,6 +42,8 @@ class BaseControllerImpl(Generic[T, ServiceType]):
 
     async def _create(self, request: Request, schema_in: T, db: Session):
         service = self.service_factory(db)
+        if hasattr(schema_in, "id_key"):
+            delattr(schema_in, "id_key")
         return service.save(schema_in)
 
     async def _update(self, request: Request, id_key: int, schema_in: T, db: Session):
