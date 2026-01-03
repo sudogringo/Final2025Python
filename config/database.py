@@ -42,7 +42,17 @@ MAX_OVERFLOW = int(os.getenv('DB_MAX_OVERFLOW', '100'))  # Additional connection
 POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '10'))  # Wait time for connection (reduced for production)
 POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '3600'))  # Recycle connections after 1 hour
 
-DATABASE_URI = f'postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}'
+# Create engine with optimized connection pooling for high concurrency
+engine = create_engine(
+    DATABASE_URI,
+    pool_pre_ping=True,  # Verify connections before using (prevents stale connections)
+    pool_size=POOL_SIZE,  # Minimum number of connections in pool
+    max_overflow=MAX_OVERFLOW,  # Additional connections beyond pool_size
+    pool_timeout=POOL_TIMEOUT,  # Seconds to wait before giving up on connection
+    pool_recycle=POOL_RECYCLE,  # Recycle connections to prevent stale connections
+    echo=False,  # Disable SQL logging in production for performance
+    future=True  # Use SQLAlchemy 2.0 style
+)
 
 # Create engine with optimized connection pooling for high concurrency
 engine = create_engine(
