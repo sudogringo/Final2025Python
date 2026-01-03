@@ -62,5 +62,12 @@ class BaseServiceImpl(BaseService):
     def to_model(self, schema: BaseSchema) -> BaseModel:
         """Convert schema to model"""
         model_class = type(self.model) if not callable(self.model) else self.model
-        model_instance = model_class(**schema.model_dump(exclude_unset=True))
+        
+        # Get the list of actual column names from the model
+        model_columns = [c.name for c in model_class.__table__.columns]
+        
+        # Filter the schema dump to only include keys that are in the model's columns
+        filtered_data = {k: v for k, v in schema.model_dump(exclude_unset=True).items() if k in model_columns}
+        
+        model_instance = model_class(**filtered_data)
         return model_instance

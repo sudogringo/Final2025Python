@@ -196,6 +196,39 @@ class TestClientEndpoints:
         data = response.json()
         assert data["name"] == "John Updated"
 
+    def test_create_client_with_age(self, api_client):
+        """Test POST /clients/ with age in payload."""
+        payload = {
+            "name": "Jane",
+            "lastname": "Smith",
+            "email": "jane@example.com",
+            "telephone": "+9876543210",
+            "age": 30
+        }
+        response = api_client.post("/clients/", json=payload)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Jane"
+        assert data["email"] == "jane@example.com"
+        assert "age" not in data
+
+    def test_create_client_without_age(self, api_client):
+        """Test POST /clients/ without age in payload."""
+        payload = {
+            "name": "Jane",
+            "lastname": "Smith",
+            "email": "jane@example.com",
+            "telephone": "+9876543210"
+        }
+        response = api_client.post("/clients/", json=payload)
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Jane"
+        assert data["email"] == "jane@example.com"
+        assert "age" not in data
+
 
 class TestOrderEndpoints:
     """Tests for Order API endpoints with FK validation."""
