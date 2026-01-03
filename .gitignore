@@ -47,3 +47,5 @@ dist/
 
 # Virtual environment
 venv/
+
+test.db
