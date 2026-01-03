@@ -20,9 +20,7 @@ from models.review import ReviewModel  # noqa
 # Get logger (logging is configured in main.py)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-env_path = os.path.join(os.path.dirname(__file__), '../.env')
-load_dotenv(env_path)
+
 
 # Database configuration with defaults
 POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
