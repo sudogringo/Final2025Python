@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette import status
 from starlette.responses import JSONResponse
+from contextlib import asynccontextmanager
 
 from config.logging_config import setup_logging
 from config.database import create_tables, engine
@@ -30,6 +31,45 @@ from controllers.review_controller import ReviewController
 from controllers.health_check import router as health_check_controller
 from repositories.base_repository_impl import InstanceNotFoundError
 
+# Lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting FastAPI E-commerce API...")
+
+    # Startup logic
+    # Create database tables on startup
+    create_tables()
+
+    # Check Redis connection
+    try:
+        check_redis_connection()
+        logger.info("✅ Redis connection successful")
+    except Exception as e:
+        logger.error(f"❌ Redis connection failed: {e}")
+        # Depending on criticality, you might want to raise an exception here
+        # or handle it as a warning for degraded service.
+
+    yield
+
+    # Shutdown logic
+    logger.info("👋 Shutting down FastAPI E-commerce API...")
+
+    # Close Redis connection
+    try:
+        redis_config.close()
+        logger.info("✅ Redis connection closed")
+    except Exception as e:
+        logger.error(f"❌ Error closing Redis: {e}")
+
+    # Close database engine
+    try:
+        engine.dispose()
+        logger.info("✅ Database engine disposed")
+    except Exception as e:
+        logger.error(f"❌ Error disposing database engine: {e}")
+
+    logger.info("✅ Shutdown complete")
+
 
 def create_fastapi_app() -> FastAPI:
     """
@@ -44,7 +84,8 @@ def create_fastapi_app() -> FastAPI:
         description="FastAPI REST API for e-commerce system with PostgreSQL",
         version="1.0.0",
         docs_url="/docs",
-        redoc_url="/redoc"
+        redoc_url="/redoc",
+        lifespan=lifespan  # Use the new lifespan
     )
 
     # Global exception handlers
@@ -107,34 +148,6 @@ def create_fastapi_app() -> FastAPI:
             period=60,
             redis_client=redis_client
         )
-
-    # Startup event: Check Redis connection
-    @fastapi_app.on_event("startup")
-    async def startup_event():
-        """Run on application startup"""
-        logger.info("🚀 Starting FastAPI E-commerce API...")
-
-    # Shutdown event: Graceful shutdown
-    @fastapi_app.on_event("shutdown")
-    async def shutdown_event():
-        """Graceful shutdown - close all connections"""
-        logger.info("👋 Shutting down FastAPI E-commerce API...")
-
-        # Close Redis connection
-        try:
-            redis_config.close()
-            logger.info("✅ Redis connection closed")
-        except Exception as e:
-            logger.error(f"❌ Error closing Redis: {e}")
-
-        # Close database engine
-        try:
-            engine.dispose()
-            logger.info("✅ Database engine disposed")
-        except Exception as e:
-            logger.error(f"❌ Error disposing database engine: {e}")
-
-        logger.info("✅ Shutdown complete")
 
     return fastapi_app
 

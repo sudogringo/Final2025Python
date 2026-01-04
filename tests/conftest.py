@@ -1,6 +1,3 @@
-# This import is crucial for populating Base.metadata before anything else.
-from config import database  # noqa
-
 """Pytest configuration and fixtures for testing."""
 import os
 import pytest
@@ -15,15 +12,14 @@ import time # New import
 import re   # New import
 
 # Set test environment before importing app modules
-os.environ['POSTGRES_HOST'] = 'localhost'
-os.environ['POSTGRES_PORT'] = '5432'
-os.environ['POSTGRES_DB'] = 'test_db'
-os.environ['POSTRES_USER'] = 'postgres'
-os.environ['POSTGRES_PASSWORD'] = 'postgres'
+os.environ['DATABASE_URL'] = 'sqlite:///:memory:' # Use in-memory SQLite for tests
 os.environ['REDIS_HOST'] = 'localhost'
 os.environ['REDIS_PORT'] = '6379'
 os.environ["DISABLE_RATE_LIMITER_FOR_TESTS"] = "true"
 
+# This import is crucial for populating Base.metadata before anything else.
+# It must come AFTER environment variables are set for the database.
+from config import database  # noqa
 
 # Autouse fixture to disable file logging during tests
 @pytest.fixture(autouse=True, scope="session")
@@ -61,7 +57,7 @@ from models.enums import Status, DeliveryMethod, PaymentType
 
 
 # Test database URL
-TEST_DATABASE_URL = "sqlite:///./test.db"  # File-based DB for inspection
+TEST_DATABASE_URL = "sqlite:///:memory:"  # In-memory DB for test isolation
 
 
 @pytest.fixture(scope="session")
