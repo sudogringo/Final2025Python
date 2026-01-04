@@ -62,7 +62,6 @@ class OrderDetailService(BaseServiceImpl):
             logger.error(f"Product with id {schema.product_id} not found")
             raise InstanceNotFoundError(f"Product with id {schema.product_id} not found")
         
-        self._product_repository.session.refresh(product_model)
 
         # Validate stock availability (now with exclusive lock)
         if product_model.stock < schema.quantity:
@@ -151,7 +150,6 @@ class OrderDetailService(BaseServiceImpl):
                 logger.error(f"Product with id {product_id} not found")
                 raise InstanceNotFoundError(f"Product with id {product_id} not found")
             
-            self._product_repository.session.refresh(product_model)
 
             # If quantity is changing, adjust stock atomically
             if schema.quantity is not None and schema.quantity != existing.quantity:

@@ -7,6 +7,7 @@ Tests verify the implementation of:
 - P11: Sanitized logging (tested separately in test_logging_utils.py)
 - P12: Health check with thresholds
 """
+import os
 import pytest
 import logging
 from unittest.mock import Mock, patch, MagicMock
@@ -42,25 +43,35 @@ from config.database import get_db
 @pytest.fixture
 def test_app_with_redis(db_session_factory, mock_redis):
     """Create test FastAPI app with mocked Redis and DB override."""
-    with patch('main.get_redis_client', return_value=mock_redis):
-        app = create_fastapi_app()
+    # Temporarily manage rate limiter for these tests
+    original_rate_limiter_env = os.environ.get("DISABLE_RATE_LIMITER_FOR_TESTS")
+    os.environ["DISABLE_RATE_LIMITER_FOR_TESTS"] = "false" # Explicitly enable for these tests
+    try:
+        with patch('main.get_redis_client', return_value=mock_redis):
+            app = create_fastapi_app()
 
-        # Override get_db dependency
-        def override_get_db():
-            session = db_session_factory()
-            try:
-                yield session
-                session.commit()
-            except Exception:
-                session.rollback()
-                raise
-            finally:
-                session.close()
+            # Override get_db dependency
+            def override_get_db():
+                session = db_session_factory()
+                try:
+                    yield session
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
+                finally:
+                    session.close()
 
-        app.dependency_overrides[get_db] = override_get_db
-        
-        client = TestClient(app)
-        yield client, mock_redis
+            app.dependency_overrides[get_db] = override_get_db
+            
+            client = TestClient(app)
+            yield client, mock_redis
+    finally:
+        # Restore original state
+        if original_rate_limiter_env is not None:
+            os.environ["DISABLE_RATE_LIMITER_FOR_TESTS"] = original_rate_limiter_env
+        else:
+            os.environ.pop("DISABLE_RATE_LIMITER_FOR_TESTS", None)
 
 
 # ============================================================================ 

@@ -18,8 +18,6 @@ from config.redis_config import redis_config, check_redis_connection, get_redis_
 from middleware.rate_limiter import RateLimiterMiddleware
 from middleware.request_id_middleware import RequestIDMiddleware
 
-# Setup centralized logging FIRST
-setup_logging()
 logger = logging.getLogger(__name__)
 from controllers.address_controller import AddressController
 from controllers.bill_controller import BillController
@@ -100,14 +98,15 @@ def create_fastapi_app() -> FastAPI:
     )
     logger.info(f"✅ CORS enabled for origins: {cors_origins}")
 
-    # Rate limiting: 100 requests per 60 seconds per IP (configurable via env)
-    redis_client = get_redis_client()
-    fastapi_app.add_middleware(
-        RateLimiterMiddleware,
-        calls=100,
-        period=60,
-        redis_client=redis_client
-    )
+    if os.getenv("DISABLE_RATE_LIMITER_FOR_TESTS") != "true":
+        # Rate limiting: 100 requests per 60 seconds per IP (configurable via env)
+        redis_client = get_redis_client()
+        fastapi_app.add_middleware(
+            RateLimiterMiddleware,
+            calls=100,
+            period=60,
+            redis_client=redis_client
+        )
 
     # Startup event: Check Redis connection
     @fastapi_app.on_event("startup")
@@ -145,6 +144,9 @@ def run_app(fastapi_app: FastAPI):
 
 
 if __name__ == "__main__":
+    # Setup centralized logging FIRST
+    setup_logging()
+
     # Create database tables on startup
     create_tables()
 

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from main import create_fastapi_app
 from config.database import get_db
 from models.enums import DeliveryMethod, Status, PaymentType
+from repositories.product_repository import ProductRepository
 
 
 @pytest.fixture
@@ -308,10 +309,12 @@ class TestOrderDetailEndpoints:
         """Test POST /order-details/ with sufficient stock."""
         order = seeded_db["order"]
         product = seeded_db["product"]
+        db_session = seeded_db["db_session"] # Get the session from seeded_db
+        product_repository = ProductRepository(db_session)
 
-        # Get current stock
-        product_response = api_client.get(f"/products/{product.id_key}")
-        initial_stock = product_response.json()["stock"]
+        # Get initial stock directly from the database
+        initial_product_db = product_repository.find(product.id_key)
+        initial_stock = initial_product_db.stock
 
         payload = {
             "quantity": 2,
@@ -325,9 +328,11 @@ class TestOrderDetailEndpoints:
         data = response.json()
         assert data["quantity"] == 2
 
+        # After API call, re-query the database for the product to get its fresh state
+        updated_product_db = product_repository.find(product.id_key)
+        new_stock = updated_product_db.stock
+
         # Verify stock was deducted
-        product_response = api_client.get(f"/products/{product.id_key}")
-        new_stock = product_response.json()["stock"]
         assert new_stock == initial_stock - 2
 
     def test_create_order_detail_insufficient_stock(self, api_client, seeded_db):
@@ -364,6 +369,12 @@ class TestOrderDetailEndpoints:
         """Test DELETE /order-details/{id} restores stock."""
         order = seeded_db["order"]
         product = seeded_db["product"]
+        db_session = seeded_db["db_session"]
+        product_repository = ProductRepository(db_session)
+
+        # Get initial stock directly from the database
+        initial_product_db = product_repository.find(product.id_key)
+        initial_stock = initial_product_db.stock
 
         # Create order detail
         payload = {
@@ -375,17 +386,17 @@ class TestOrderDetailEndpoints:
         create_response = api_client.post("/order_details/", json=payload)
         order_detail_id = create_response.json()["id_key"]
 
-        # Get stock after creation
-        product_response = api_client.get(f"/products/{product.id_key}")
-        stock_after_create = product_response.json()["stock"]
+        # After creation, re-query product to get updated stock
+        product_after_create_db = product_repository.find(product.id_key)
+        stock_after_create = product_after_create_db.stock
 
         # Delete order detail
         delete_response = api_client.delete(f"/order_details/{order_detail_id}")
         assert delete_response.status_code == 204
 
-        # Verify stock was restored
-        product_response = api_client.get(f"/products/{product.id_key}")
-        stock_after_delete = product_response.json()["stock"]
+        # After deletion, re-query product to get updated stock
+        product_after_delete_db = product_repository.find(product.id_key)
+        stock_after_delete = product_after_delete_db.stock
         assert stock_after_delete == stock_after_create + 2
 
 
