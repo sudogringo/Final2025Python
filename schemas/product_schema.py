@@ -18,4 +18,5 @@ class ProductSchema(BaseSchema):
     stock: int = Field(default=0, ge=0, description="Product stock quantity (must be >= 0)")
 
     category_id: int = Field(..., description="Category ID reference (required)")
+    image: Optional[str] = Field(None, description="Product image URL (optional)")
 

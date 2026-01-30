@@ -1,7 +1,8 @@
 """Base controller implementation module with FastAPI dependency injection."""
 from typing import Any, Callable, Generic, List, Type, TypeVar
-from fastapi import APIRouter, Depends, status, Request
+from fastapi import APIRouter, Depends, status, Request, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from starlette.responses import Response # Ensure Response is imported
 
 from schemas.base_schema import BaseSchema
@@ -42,9 +43,15 @@ class BaseControllerImpl(Generic[T, ServiceType]):
 
     async def _create(self, request: Request, schema_in: T, db: Session):
         service = self.service_factory(db)
-        if hasattr(schema_in, "id_key"):
-            delattr(schema_in, "id_key")
-        return service.save(schema_in)
+        try:
+            if hasattr(schema_in, "id_key"):
+                delattr(schema_in, "id_key")
+            return service.save(schema_in)
+        except IntegrityError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Duplicate entry: {e.orig}",
+            )
 
     async def _update(self, request: Request, id_key: int, schema_in: T, db: Session):
         service = self.service_factory(db)

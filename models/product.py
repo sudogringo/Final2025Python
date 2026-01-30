@@ -34,6 +34,7 @@ class ProductModel(BaseModel):
     price = Column(Float, index=True, nullable=False)
     stock = Column(Integer, default=0, nullable=False, index=True)  # ✅ Added index
     category_id = Column(Integer, ForeignKey('categories.id_key'), index=True, nullable=False)
+    image = Column(String, nullable=True)
 
     category = relationship(
         'CategoryModel',

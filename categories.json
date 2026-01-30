@@ -1,0 +1,10 @@
+[
+  { "id_key": 1, "name": "Celulares" },
+  { "id_key": 2, "name": "Computadoras" },
+  { "id_key": 3, "name": "Televisores" },
+  { "id_key": 4, "name": "Audio" },
+  { "id_key": 5, "name": "Tablets" },
+  { "id_key": 6, "name": "Accesorios" },
+  { "id_key": 7, "name": "Consolas" },
+  { "id_key": 8, "name": "Cámaras" }
+]
