@@ -34,6 +34,8 @@ typing_extensions==4.8.0
 urllib3==2.1.0
 uvicorn==0.24.0.post1
 wrapt==1.16.0
+alembic
+
 
 # Testing dependencies
 pytest==7.4.3

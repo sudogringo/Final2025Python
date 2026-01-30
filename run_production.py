@@ -5,9 +5,11 @@ This script runs Uvicorn with multiple workers to handle 400+ concurrent request
 """
 import multiprocessing
 import os
+import subprocess
+import sys
 
 import uvicorn
-from config.database import create_tables
+# from config.database import create_tables # Removed import
 
 # Calculate optimal workers based on CPU cores
 # Formula: (2 x $num_cores) + 1
@@ -28,13 +30,18 @@ LIMIT_CONCURRENCY = int(os.getenv('LIMIT_CONCURRENCY', '1000'))
 LIMIT_MAX_REQUESTS = int(os.getenv('LIMIT_MAX_REQUESTS', '10000'))
 
 if __name__ == "__main__":
-    # Create database tables before starting server
-    print("📦 Creating database tables...")
+    # Run Alembic migrations before starting server
+    print("📦 Running database migrations...")
     try:
-        create_tables()
-        print("✅ Database tables created successfully\n")
+        # We use sys.executable to ensure we're using the python from the venv/container
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
+        print("✅ Database migrations applied successfully\n")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error applying database migrations: {e}")
+        sys.exit(1) # Exit if migrations fail
     except Exception as e:
-        print(f"⚠️  Database tables may already exist or error occurred: {e}\n")
+        print(f"⚠️  An unexpected error occurred during migrations: {e}\n")
+        sys.exit(1) # Exit if migrations fail
 
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
