@@ -7,6 +7,7 @@ Create Date: 2025-11-17 18:15:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.exc import ProgrammingError
 
 
 # revision identifiers, used by Alembic.
@@ -18,36 +19,43 @@ depends_on = None
 
 def upgrade() -> None:
     """Add client_id column to bills table with foreign key and index"""
+    try:
+        # Step 1: Add client_id column (nullable initially to allow backfill)
+        op.add_column('bills', sa.Column('client_id', sa.Integer(), nullable=True))
 
-    # Step 1: Add client_id column (nullable initially to allow backfill)
-    op.add_column('bills', sa.Column('client_id', sa.Integer(), nullable=True))
+        # Step 2: Backfill client_id from orders table
+        # Every bill is associated with an order, and every order has a client_id
+        op.execute("""
+            UPDATE bills
+            SET client_id = (
+                SELECT orders.client_id
+                FROM orders
+                WHERE orders.bill_id = bills.id_key
+                LIMIT 1
+            )
+        """)
 
-    # Step 2: Backfill client_id from orders table
-    # Every bill is associated with an order, and every order has a client_id
-    op.execute("""
-        UPDATE bills
-        SET client_id = (
-            SELECT orders.client_id
-            FROM orders
-            WHERE orders.bill_id = bills.id_key
-            LIMIT 1
+        # Step 3: Make client_id NOT NULL after backfilling
+        op.alter_column('bills', 'client_id', nullable=False)
+
+        # Step 4: Create foreign key constraint
+        op.create_foreign_key(
+            'fk_bills_client_id',  # Constraint name
+            'bills',                # Source table
+            'clients',              # Referenced table
+            ['client_id'],          # Source columns
+            ['id_key']              # Referenced columns
         )
-    """)
 
-    # Step 3: Make client_id NOT NULL after backfilling
-    op.alter_column('bills', 'client_id', nullable=False)
-
-    # Step 4: Create foreign key constraint
-    op.create_foreign_key(
-        'fk_bills_client_id',  # Constraint name
-        'bills',                # Source table
-        'clients',              # Referenced table
-        ['client_id'],          # Source columns
-        ['id_key']              # Referenced columns
-    )
-
-    # Step 5: Create index for performance
-    op.create_index(op.f('ix_bills_client_id'), 'bills', ['client_id'], unique=False)
+        # Step 5: Create index for performance
+        op.create_index(op.f('ix_bills_client_id'), 'bills', ['client_id'], unique=False)
+    except ProgrammingError as e:
+        # This can happen if the column already exists
+        if "already exists" in str(e) or "duplicate" in str(e):
+            print("Column client_id seems to exist already, skipping.")
+            pass
+        else:
+            raise
 
 
 def downgrade() -> None:
