@@ -8,7 +8,7 @@ Create Date: 2025-11-17 18:05:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import Enum
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.engine.reflection import Inspector
 
 
 # revision identifiers, used by Alembic.
@@ -20,8 +20,12 @@ depends_on = None
 
 def upgrade() -> None:
     """Create all tables with current schema including constraints and indexes"""
-    try:
-        # Create categories table
+    conn = op.get_bind()
+    inspector = Inspector.from_engine(conn)
+    tables = inspector.get_table_names()
+
+    # Create categories table
+    if 'categories' not in tables:
         op.create_table(
             'categories',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -30,7 +34,8 @@ def upgrade() -> None:
         )
         op.create_index(op.f('ix_categories_id_key'), 'categories', ['id_key'], unique=False)
 
-        # Create clients table
+    # Create clients table
+    if 'clients' not in tables:
         op.create_table(
             'clients',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -44,7 +49,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_clients_email'), 'clients', ['email'], unique=True)
         op.create_index(op.f('ix_clients_id_key'), 'clients', ['id_key'], unique=False)
 
-        # Create bills table
+    # Create bills table
+    if 'bills' not in tables:
         op.create_table(
             'bills',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -59,7 +65,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_bills_bill_number'), 'bills', ['bill_number'], unique=True)
         op.create_index(op.f('ix_bills_id_key'), 'bills', ['id_key'], unique=False)
 
-        # Create products table
+    # Create products table
+    if 'products' not in tables:
         op.create_table(
             'products',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -74,7 +81,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_products_category_id'), 'products', ['category_id'], unique=False)
         op.create_index(op.f('ix_products_id_key'), 'products', ['id_key'], unique=False)
 
-        # Create addresses table
+    # Create addresses table
+    if 'addresses' not in tables:
         op.create_table(
             'addresses',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -89,7 +97,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_addresses_client_id'), 'addresses', ['client_id'], unique=False)
         op.create_index(op.f('ix_addresses_id_key'), 'addresses', ['id_key'], unique=False)
 
-        # Create orders table
+    # Create orders table
+    if 'orders' not in tables:
         op.create_table(
             'orders',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -107,7 +116,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_orders_client_id'), 'orders', ['client_id'], unique=False)
         op.create_index(op.f('ix_orders_id_key'), 'orders', ['id_key'], unique=False)
 
-        # Create reviews table with CHECK constraint for rating range
+    # Create reviews table with CHECK constraint for rating range
+    if 'reviews' not in tables:
         op.create_table(
             'reviews',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -121,7 +131,8 @@ def upgrade() -> None:
         op.create_index(op.f('ix_reviews_id_key'), 'reviews', ['id_key'], unique=False)
         op.create_index(op.f('ix_reviews_product_id'), 'reviews', ['product_id'], unique=False)
 
-        # Create order_details table
+    # Create order_details table
+    if 'order_details' not in tables:
         op.create_table(
             'order_details',
             sa.Column('id_key', sa.Integer(), nullable=False),
@@ -136,14 +147,6 @@ def upgrade() -> None:
         op.create_index(op.f('ix_order_details_id_key'), 'order_details', ['id_key'], unique=False)
         op.create_index(op.f('ix_order_details_order_id'), 'order_details', ['order_id'], unique=False)
         op.create_index(op.f('ix_order_details_product_id'), 'order_details', ['product_id'], unique=False)
-    except ProgrammingError as e:
-        # This can happen if the tables already exist, e.g., in a test environment
-        # or if the database was manually created.
-        if "already exists" in str(e):
-            print("Tables seem to exist already, skipping initial schema creation.")
-            pass
-        else:
-            raise
 
 
 def downgrade() -> None:

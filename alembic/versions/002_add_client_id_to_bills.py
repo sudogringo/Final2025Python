@@ -7,7 +7,7 @@ Create Date: 2025-11-17 18:15:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.engine.reflection import Inspector
 
 
 # revision identifiers, used by Alembic.
@@ -19,7 +19,12 @@ depends_on = None
 
 def upgrade() -> None:
     """Add client_id column to bills table with foreign key and index"""
-    try:
+    conn = op.get_bind()
+    inspector = Inspector.from_engine(conn)
+    columns = inspector.get_columns('bills')
+    column_names = [c['name'] for c in columns]
+
+    if 'client_id' not in column_names:
         # Step 1: Add client_id column (nullable initially to allow backfill)
         op.add_column('bills', sa.Column('client_id', sa.Integer(), nullable=True))
 
@@ -49,13 +54,8 @@ def upgrade() -> None:
 
         # Step 5: Create index for performance
         op.create_index(op.f('ix_bills_client_id'), 'bills', ['client_id'], unique=False)
-    except ProgrammingError as e:
-        # This can happen if the column already exists
-        if "already exists" in str(e) or "duplicate" in str(e):
-            print("Column client_id seems to exist already, skipping.")
-            pass
-        else:
-            raise
+    else:
+        print("Column 'client_id' already exists in 'bills' table. Skipping.")
 
 
 def downgrade() -> None:
